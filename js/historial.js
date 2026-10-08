@@ -1,5 +1,5 @@
 /* Historial de pruebas por socio (ligado a su teléfono) y comparación entre pruebas.
- * Los registros viven en el navegador (localStorage); exportar/importar permite moverlos de equipo. */
+ * Los registros viven en Supabase (con inicio de sesión del personal); sin Supabase configurado, en localStorage. */
 (function (root) {
   "use strict";
   const CLAVE = "vivo47-historial-v1";
@@ -29,17 +29,18 @@
   }
 
   // ---------- almacenamiento ----------
-  // Copia en memoria (cache) + espejo en localStorage. Dentro de Claude se conecta además la base de datos
-  // del artifact (conectarDb): así el historial se comparte entre computadoras y sobrevive a borrar el navegador.
+  // Copia en memoria (cache). Si hay Supabase configurado, el historial vive solo allí (tabla "pruebas", con inicio de
+  // sesión del personal) y no se guarda nada en el navegador. Sin Supabase, se usa localStorage como respaldo local.
   const idDe = (rec) => `${rec.telefono}|${rec.fecha}`;
   const idDoc = (rec) => `${rec.telefono}_${rec.fecha}`.replace(/[^A-Za-z0-9_\-.~:@+]/g, "-");
   const orden = (a) => a.sort((x, y) => x.telefono.localeCompare(y.telefono) || x.fecha.localeCompare(y.fecha));
   const valido = (x) => x && typeof x.telefono === "string" && typeof x.fecha === "string" && isNum(x.vo2max);
-  let cache = null, col = null, avisar = () => {};
+  let cache = null, back = null, nube = false, avisar = () => {};
   function leerLocal() { try { const a = JSON.parse(localStorage.getItem(CLAVE) || "[]"); return Array.isArray(a) ? a.filter(valido) : []; } catch (e) { return []; } }
-  function espejo() { try { localStorage.setItem(CLAVE, JSON.stringify(cache)); } catch (e) { /* sin espacio o bloqueado */ } }
-  function leer() { if (!cache) cache = orden(leerLocal()); return cache; }
-  const escrituras = (fn) => { if (!col) return Promise.resolve(); return Promise.resolve().then(fn).catch((e) => { avisar((e && e.code) || "error", e); throw e; }); };
+  function espejo() { if (nube) return; try { localStorage.setItem(CLAVE, JSON.stringify(cache)); } catch (e) { /* sin espacio o bloqueado */ } }
+  function leer() { if (!cache) cache = nube ? [] : orden(leerLocal()); return cache; }
+  const sinSesion = () => Object.assign(new Error("Inicia sesión para usar el historial."), { code: "sin-sesion" });
+  const escrituras = (fn) => { if (!back) return Promise.resolve(); return Promise.resolve().then(fn).catch((e) => { avisar((e && e.code) || "error", e); throw e; }); };
 
   /** Resumen compacto de un análisis: lo que se guarda y se compara. */
   function resumen(r, telefono) {
@@ -53,27 +54,39 @@
       vt1: umb(r.vt1), vt2: umb(r.vt2), guardado: new Date().toISOString(),
     };
   }
-  /** Guarda (o reemplaza, si se re-analiza la misma prueba). Devuelve una promesa que se resuelve al confirmarse en la base de datos. */
+  /** Guarda (o reemplaza, si se re-analiza la misma prueba). Devuelve una promesa que se resuelve al confirmarse en Supabase. */
   function guardar(rec) {
+    if (nube && !back) return Promise.reject(sinSesion());
     cache = orden(leer().filter((x) => idDe(x) !== idDe(rec)).concat([rec])); espejo();
-    return escrituras(() => col.doc(idDoc(rec)).set(rec));
+    return escrituras(() => back.guardar([rec]));
   }
   function borrar(tel, fecha) {
+    if (nube && !back) return Promise.reject(sinSesion());
     const rec = leer().find((x) => x.telefono === tel && x.fecha === fecha);
     cache = leer().filter((x) => !(x.telefono === tel && x.fecha === fecha)); espejo();
-    return rec ? escrituras(() => col.doc(idDoc(rec)).delete()) : Promise.resolve();
+    return rec ? escrituras(() => back.borrar(rec)) : Promise.resolve();
   }
-  /** Conecta la base de datos del artifact: sube lo que solo estaba en este navegador y se mantiene al día en vivo. */
-  async function conectarDb(coleccion, alCambiar, alFallar) {
-    col = coleccion; avisar = alFallar || (() => {});
-    const snap = await col.get(), remotos = snap.docs.map((d) => d.data()).filter(valido), ids = new Set(remotos.map(idDe));
+  /** Conecta Supabase (cliente ya con sesión iniciada): carga el historial y sube lo que solo estaba en este navegador. */
+  async function conectarSupabase(sb, alFallar) {
+    avisar = alFallar || (() => {}); nube = true;
+    const tabla = () => sb.from("pruebas");
+    const b = {
+      async listar() { const { data, error } = await tabla().select("datos").order("fecha"); if (error) throw error; return data.map((d) => d.datos).filter(valido); },
+      async guardar(recs) { const { error } = await tabla().upsert(recs.map((x) => ({ id: idDoc(x), telefono: x.telefono, fecha: x.fecha, datos: x }))); if (error) throw error; },
+      async borrar(rec) { const { error } = await tabla().delete().eq("id", idDoc(rec)); if (error) throw error; },
+    };
+    const remotos = await b.listar(), ids = new Set(remotos.map(idDe));
     const solosLocal = leerLocal().filter((x) => !ids.has(idDe(x)));
-    cache = orden(remotos.concat(solosLocal)); espejo();
-    for (const x of solosLocal) await col.doc(idDoc(x)).set(x);
-    col.onSnapshot((sn) => { cache = orden(sn.docs.map((d) => d.data()).filter(valido)); espejo(); if (alCambiar) alCambiar(); }, (e) => avisar((e && e.code) || "error", e));
+    if (solosLocal.length) await b.guardar(solosLocal);
+    try { localStorage.removeItem(CLAVE); } catch (e) { /* bloqueado */ }
+    back = b; cache = orden(remotos.concat(solosLocal));
     return { remotos: remotos.length, subidos: solosLocal.length };
   }
-  const conectado = () => !!col;
+  /** Al cerrar sesión se vacía la copia en memoria. */
+  function desconectar() { back = null; cache = []; }
+  const conectado = () => !!back;
+  /** Activa el modo nube (hay Supabase configurado) aunque aún no haya sesión: así no se escribe nada en el navegador. */
+  function modoNube() { nube = true; if (!back) cache = []; }
 
   function deTelefono(tel) { return leer().filter((x) => x.telefono === tel).sort((x, y) => x.fecha.localeCompare(y.fecha)); }
   function socios() {
@@ -87,8 +100,9 @@
     if (!Array.isArray(nuevos)) throw new Error("El archivo no es un respaldo del historial.");
     const ok = nuevos.filter(valido), m = new Map(leer().map((x) => [idDe(x), x]));
     let agregadas = 0; for (const x of ok) { if (!m.has(idDe(x))) agregadas++; m.set(idDe(x), x); }
+    if (nube && !back) throw sinSesion();
+    if (back) await back.guardar(ok);
     cache = orden([...m.values()]); espejo();
-    if (col) for (const x of ok) await col.doc(idDoc(x)).set(x);
     return { leidas: ok.length, agregadas };
   }
 
@@ -214,6 +228,6 @@
     return `${p > 0 ? "subió" : "bajó"} de ${a.toFixed(1)} a ${b.toFixed(1)} (${p > 0 ? "+" : "−"}${Math.abs(p).toFixed(0)} %)`;
   }
 
-  const api = { LADAS, normalizarTelefono, telefonoLegible, resumen, guardar, leer, deTelefono, borrar, socios, exportar, importar, conectarDb, conectado, comparar, compararPar, fechaCorta };
+  const api = { LADAS, normalizarTelefono, telefonoLegible, resumen, guardar, leer, deTelefono, borrar, socios, exportar, importar, conectarSupabase, desconectar, modoNube, conectado, comparar, compararPar, fechaCorta };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.VO2H = api;
 })(typeof window !== "undefined" ? window : globalThis);

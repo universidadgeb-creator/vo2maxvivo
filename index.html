@@ -68,18 +68,27 @@
     <div class="hist-head">
       <div><h2 id="histTitulo">Historial de socios</h2><p class="hint" id="histdonde"></p></div>
       <div class="hist-acc">
+        <button class="btn btn-sec" type="button" id="salir" hidden>Cerrar sesión</button>
         <button class="btn btn-sec" type="button" id="exportar">Exportar respaldo</button>
         <label class="btn btn-sec" for="importar">Importar respaldo<input type="file" id="importar" accept=".json,application/json" hidden></label>
       </div>
     </div>
+    <form id="login" class="login" hidden>
+      <p class="hint">El historial está protegido: inicia sesión con tu cuenta del personal.</p>
+      <input type="email" id="loginMail" placeholder="Correo" autocomplete="username" required aria-label="Correo">
+      <input type="password" id="loginPass" placeholder="Contraseña" autocomplete="current-password" required aria-label="Contraseña">
+      <button class="btn" type="submit">Entrar</button>
+    </form>
     <input type="text" id="buscar" placeholder="Buscar por nombre o teléfono" autocomplete="off" aria-label="Buscar socio">
     <div id="histlista"></div>
     <p class="hint" id="histmsg" role="status" hidden></p>
   </section>
 
-  <p class="privacy">El Excel se procesa dentro de tu navegador: no se sube a ningún servidor. El historial de socios (nombre, teléfono y resultados) se guarda solo en este navegador o, dentro de Claude, en la base de datos privada de la página; usa «Exportar respaldo» para tener una copia. Método: VO₂ recalculado respiración por respiración con el método del especialista (sin restar espacio muerto), VO₂max como el promedio móvil de 30 s más alto, umbrales por etapas y percentiles del registro FRIEND 2022.</p>
+  <p class="privacy">El Excel se procesa dentro de tu navegador: no se sube a ningún servidor. El historial de socios (nombre, teléfono y resultados) se guarda en una base de datos privada (Supabase) a la que solo entra el personal con cuenta; usa «Exportar respaldo» para tener una copia. Método: VO₂ recalculado respiración por respiración con el método del especialista (sin restar espacio muerto), VO₂max como el promedio móvil de 30 s más alto, umbrales por etapas y percentiles del registro FRIEND 2022.</p>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="js/config.js"></script>
 <script src="js/vendor/xlsx.full.min.js"></script>
 <script src="js/vendor/jspdf.umd.min.js"></script>
 <script src="js/engine.js"></script>

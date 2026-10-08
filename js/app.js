@@ -22,6 +22,7 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
     leer() { try { return JSON.parse(localStorage.getItem("vivo47-socios") || "{}"); } catch (e) { return {}; } },
     guardar(clave, d) { try { const m = memoria.leer(); m[clave] = d; localStorage.setItem("vivo47-socios", JSON.stringify(m)); } catch (e) {} },
   };
+  const CFG = window.VIVO47_SUPABASE || {}, SB = !!(CFG.url && CFG.anonKey && window.supabase);
   const claveDe = (n) => String(n).split("-Basic")[0].split("-")[0].toLowerCase();
 
   function listo() { return !!(window.XLSX && window.jspdf); }
@@ -69,15 +70,16 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
     if (!s.edad) { mostrarError("Escribe la edad del socio: sin ella no hay percentil ni comparación por edad."); $("edad").focus(); return; }
     try {
       actual = VO2.analizar(filas, archivo, s);
-      memoria.guardar(claveDe(archivo), { nombre: s.nombre, sexo: s.sexo, edad: s.edad, evaluador: s.evaluador, lada: $("lada").value, telnum: $("telnum").value.trim() });
+      memoria.guardar(claveDe(archivo), { nombre: s.nombre, sexo: s.sexo, edad: s.edad, evaluador: s.evaluador, lada: $("lada").value, telnum: SB ? "" : $("telnum").value.trim() });
       const tel = telefonoForm();
       let nota = "";
       if (tel) {
         const rec = VO2H.resumen(actual, tel);
         actual.historial = VO2H.comparar(rec, VO2H.deTelefono(tel));
         actual.telefonoLegible = VO2H.telefonoLegible(tel);
-        try { VO2H.guardar(rec).then(() => { if (VO2H.conectado()) histMsg("Prueba guardada en el historial compartido de Claude."); }, () => {}); nota = actual.historial ? ` Comparada con ${actual.historial.anteriores.length} prueba${actual.historial.anteriores.length > 1 ? "s" : ""} anterior${actual.historial.anteriores.length > 1 ? "es" : ""}.` : " Guardada en el historial (primera prueba de este teléfono)."; }
-        catch (e) { nota = " No se pudo guardar en el historial de este navegador."; }
+        if (SB && !VO2H.conectado()) nota = " No se guardó en el historial: inicia sesión en el panel «Historial de socios» y vuelve a analizar.";
+        else try { VO2H.guardar(rec).then(() => { if (VO2H.conectado()) histMsg("Prueba guardada en el historial."); }, () => {}); nota = actual.historial ? ` Comparada con ${actual.historial.anteriores.length} prueba${actual.historial.anteriores.length > 1 ? "s" : ""} anterior${actual.historial.anteriores.length > 1 ? "es" : ""}.` : " Guardada en el historial (primera prueba de este teléfono)."; }
+        catch (e) { nota = " No se pudo guardar en el historial."; }
         try { localStorage.setItem(PREF_LADA, $("lada").value); } catch (e) {}
         pintarHistorial();
       } else if ($("telnum").value.trim()) nota = " El teléfono no es válido, así que no se guardó en el historial.";
@@ -263,22 +265,38 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
     pintar(actual); filas = null; esEjemplo = false;
   }
   llenarLadas(); pintarHistorial();
-  // Dentro de Claude el historial se guarda en la base de datos del artifact (compartido entre computadoras).
+  // ---- Supabase: historial en línea con inicio de sesión del personal ----
   function fallaDb(codigo) {
-    histMsg(codigo === "invalid_argument" || codigo === "not_granted"
-      ? "Esta cuenta no puede escribir en el historial compartido (solo la persona dueña de la página o quien tenga permiso de edición). Se guardó solo en este navegador."
-      : codigo === "quota_exceeded" ? "El historial compartido está lleno. Exporta un respaldo y borra pruebas antiguas."
-      : "No se pudo guardar en el historial compartido (" + esc(codigo) + "). Quedó en este navegador; exporta un respaldo.");
+    histMsg(codigo === "sin-sesion" ? "Inicia sesión para usar el historial."
+      : codigo === "42501" || codigo === "PGRST301" ? "Esta cuenta no tiene permiso para escribir en el historial."
+      : "No se pudo guardar en el historial en línea (" + esc(codigo) + "). Revisa tu conexión y vuelve a analizar la prueba.");
   }
-  function estadoAlmacen() { $("histdonde").textContent = VO2H.conectado() ? "Historial compartido en Claude: se guarda en línea y lo ves desde cualquier computadora con acceso a esta página." : "Pruebas guardadas solo en este navegador, ligadas al teléfono de cada socio. Exporta un respaldo seguido."; }
+  function estadoAlmacen() {
+    $("histdonde").textContent = !SB ? "Pruebas guardadas solo en este navegador, ligadas al teléfono de cada socio. Exporta un respaldo seguido."
+      : VO2H.conectado() ? "Historial en línea (Supabase): lo ves desde cualquier computadora con tu cuenta del personal." : "Historial en línea protegido: inicia sesión para verlo.";
+  }
+  if (SB) {
+    VO2H.modoNube();
+    const sb = window.supabase.createClient(CFG.url, CFG.anonKey);
+    const mostrarSesion = (on) => { $("login").hidden = on; $("salir").hidden = !on; $("buscar").hidden = !on; $("histlista").hidden = !on; $("exportar").hidden = !on; $("importar").parentElement.hidden = !on; };
+    async function entrar(sesion) {
+      if (!sesion) { VO2H.desconectar(); mostrarSesion(false); estadoAlmacen(); pintarHistorial(); return; }
+      try {
+        const r = await VO2H.conectarSupabase(sb, fallaDb);
+        mostrarSesion(true); estadoAlmacen(); pintarHistorial(); revisarTelefono(false);
+        if (r.subidos) histMsg(`Se subieron ${r.subidos} prueba${r.subidos > 1 ? "s" : ""} que estaban guardadas solo en este navegador.`);
+      } catch (e) { mostrarSesion(false); histMsg("No se pudo cargar el historial (" + esc((e && (e.code || e.message)) || "error") + ")."); }
+    }
+    mostrarSesion(false);
+    sb.auth.onAuthStateChange((ev, ses) => { if (ev === "SIGNED_IN" || ev === "INITIAL_SESSION" || ev === "SIGNED_OUT") setTimeout(() => entrar(ses), 0); });
+    $("login").addEventListener("submit", async (e) => {
+      e.preventDefault(); histMsg("");
+      const { error } = await sb.auth.signInWithPassword({ email: $("loginMail").value.trim(), password: $("loginPass").value });
+      if (error) histMsg("No se pudo iniciar sesión: correo o contraseña incorrectos."); else $("loginPass").value = "";
+    });
+    $("salir").addEventListener("click", () => sb.auth.signOut());
+  } else if (CFG.url) histMsg("No cargó la librería de Supabase. Revisa tu conexión a internet y recarga la página.");
   estadoAlmacen();
-  if (window.claude) usar("db").then(async (db) => {
-    if (!db) return;
-    try {
-      await VO2H.conectarDb(db.collection("pruebas"), () => { pintarHistorial(); revisarTelefono(false); }, fallaDb);
-      estadoAlmacen(); pintarHistorial(); revisarTelefono(false);
-    } catch (e) { fallaDb((e && e.code) || "error"); }
-  });
   try { cargarEjemplo(); } catch (e) { $("resultado").innerHTML = '<p class="hint">Sube un Excel para ver el resultado aquí.</p>'; }
   window.addEventListener("load", () => { if (!listo()) { $("libs").textContent = "Las herramientas de la página no cargaron. Recarga la página; si sigue igual, revisa tu conexión a internet."; $("libs").hidden = false; } });
 })();

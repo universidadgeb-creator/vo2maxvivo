@@ -22,17 +22,16 @@ Todo el cálculo se hace en el navegador de quien usa la página. Los Excel y lo
 - El **reporte del socio** agrega la sección «Tu evolución» (gráfica, tabla de cambios, lo que mejoró y áreas de oportunidad). La **hoja del personal** agrega «Historial del socio» (todas sus pruebas, tabla completa de cambios, mejoras, áreas de oportunidad, cautelas) y un paso de guion para explicar la evolución.
 - Tipos de mejora que reconoce: capacidad aeróbica máxima, composición corporal (cuando el VO₂max sube por bajar de peso), umbral anaeróbico, base aeróbica, economía de carrera, rendimiento y recuperación.
 
-**En la página de Claude** el historial se guarda en la base de datos privada de la página: se comparte entre computadoras y no se pierde al borrar el navegador. Solo la dueña o el dueño de la página y quien tenga permiso de edición lo ven y escriben.
+**Dónde se guarda:** en una base de datos de **Supabase**, protegida con inicio de sesión del personal. No queda nada en el navegador y se ve desde cualquier computadora. Sin Supabase configurado (`js/config.js` vacío), la página funciona como antes: guarda en el navegador (localStorage).
 
-**En esta versión (repositorio / hosting propio)** dónde se guarda: en el navegador de la computadora que se usa (localStorage). No sale a internet, aunque el sitio esté publicado. Por eso:
+### Activar Supabase (una sola vez)
+1. Crea un proyecto en [supabase.com](https://supabase.com).
+2. En **SQL Editor** pega y ejecuta `herramientas/supabase.sql` (crea la tabla `pruebas` con RLS: solo usuarios con sesión leen y escriben).
+3. En **Authentication → Providers → Email** deja activo el correo y **desactiva «Allow new users to sign up»**. En **Authentication → Users → Add user** crea las cuentas del personal (correo + contraseña, marca «Auto confirm»).
+4. En **Project Settings → API** copia la *Project URL* y la clave *anon public* y pégalas en `js/config.js`. La clave anon es pública por diseño; nunca pongas la `service_role`.
+5. Sube el cambio a GitHub; Pages lo publica.
 
-- Usa siempre la misma computadora y navegador para el centro, o
-- **Exportar respaldo** descarga un `.json` con todo el historial; **Importar respaldo** lo junta en otra computadora (no duplica pruebas).
-- Borrar los datos de navegación del navegador borra el historial: exporta un respaldo seguido.
-
-Para un historial compartido entre varias computadoras en tiempo real haría falta una base de datos en línea (por ejemplo Supabase o Firebase), con usuario y contraseña para el personal.
-
-El respaldo contiene teléfonos y resultados de socios: guárdalo en un lugar privado y **no lo subas al repositorio**.
+Al primer inicio de sesión, lo que hubiera guardado en ese navegador se sube a Supabase y se borra del navegador. «Exportar/Importar respaldo» sigue disponible.
 
 ## Publicarla con GitHub Pages
 
@@ -48,7 +47,9 @@ También funciona en Netlify, Vercel o cualquier hosting de archivos estáticos,
 ```
 index.html                 página
 css/estilos.css            estilos
-js/historial.js            historial por teléfono y comparación entre pruebas
+js/historial.js            historial por teléfono (Supabase) y comparación entre pruebas
+js/config.js               URL y clave pública de Supabase
+herramientas/supabase.sql  tabla y políticas de seguridad del historial
 js/engine.js               cálculo: VO₂ (método del especialista), VO₂max, umbrales, percentiles FRIEND, validaciones
 js/pdf.js                  armado de los dos PDF (jsPDF)
 js/app.js                  interfaz: carga del Excel, formulario, descargas

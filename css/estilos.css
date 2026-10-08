@@ -136,3 +136,9 @@ select:focus-visible, input[type=tel]:focus-visible { outline: 2px solid var(--a
 .evo ul { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; }
 .evo .up { color: var(--ok); } .evo .down { color: #b57a00; }
 #telinfo { min-height: 2.9em; }
+
+/* historial en línea: inicio de sesión del personal */
+.hist [hidden], .hist-acc [hidden] { display: none !important; }
+.login { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.login .hint { flex-basis: 100%; margin: 0; }
+.login input { flex: 1 1 180px; }
