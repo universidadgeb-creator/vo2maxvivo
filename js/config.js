@@ -3,8 +3,8 @@
  * Esos valores son públicos por diseño: las reglas de herramientas/firestore.rules son las que limitan qué se puede leer y escribir.
  * Si apiKey está vacío, el historial se guarda solo en este navegador. */
 window.VIVO47_FIREBASE = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  appId: "",
+  apiKey: "AIzaSyDCVp9rBDvhC3a7T2TcCLTncosSwvXZmms",
+  authDomain: "vo2maxcenter.firebaseapp.com",
+  projectId: "vo2maxcenter",
+  appId: "1:221370814624:web:d45356c7afa42a95a8f9c5",
 };
