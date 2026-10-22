@@ -17,13 +17,14 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
     try { if (p) await p.manage(); } catch (e) { /* el panel no abrió */ }
   }
 
-  // ---- memoria local de socios (solo en este navegador) ----
-  const memoria = {
-    leer() { try { return JSON.parse(localStorage.getItem("vivo47-socios") || "{}"); } catch (e) { return {}; } },
-    guardar(clave, d) { try { const m = memoria.leer(); m[clave] = d; localStorage.setItem("vivo47-socios", JSON.stringify(m)); } catch (e) {} },
+  // Preferencias del navegador: solo el evaluador y la clave de país. La edad y el sexo NO se recuerdan por nombre
+  // (dos socios con el mismo nombre darían un percentil con la edad equivocada).
+  const pref = {
+    leer(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
+    guardar(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
   };
-  const CFG = window.VIVO47_SUPABASE || {}, SB = !!(CFG.url && CFG.anonKey && window.supabase);
-  const claveDe = (n) => String(n).split("-Basic")[0].split("-")[0].toLowerCase();
+  const CFG = window.VIVO47_FIREBASE || {}, SB = !!(CFG.apiKey && CFG.projectId && window.firebase);
+  let vt1T = null, vt2T = null, modoUV = "uv2";
 
   function listo() { return !!(window.XLSX && window.jspdf); }
   function okMsg(t) { $("okmsg").innerHTML = t || ""; $("okmsg").hidden = !t; }
@@ -41,25 +42,27 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
       if (!hoja) throw new Error("No encontré los datos de respiración en este archivo (hoja «Atem»). Usa el Excel que exporta Spiro Fit para la prueba.");
       filas = XLSX.utils.sheet_to_json(hoja, { defval: null });
       archivo = file.name; esEjemplo = false;
-      const info = VO2.infoDesdeNombre(file.name), mem = memoria.leer()[claveDe(file.name)] || {};
-      $("nombre").value = mem.nombre || info.nombre;
-      $("edad").value = mem.edad || "";
-      (mem.sexo === "M" ? $("sexoM") : $("sexoH")).checked = true;
-      if (mem.lada) $("lada").value = mem.lada;
-      $("telnum").value = mem.telnum || ""; revisarTelefono(false);
-      $("peso").value = ""; $("vt1").value = ""; $("vt2").value = ""; $("evaluador").value = mem.evaluador || "";
+      const info = VO2.infoDesdeNombre(file.name);
+      $("nombre").value = info.nombre; $("edad").value = ""; $("sexoH").checked = false; $("sexoM").checked = false;
+      $("telnum").value = ""; revisarTelefono(false);
+      $("peso").value = ""; $("vt1").value = ""; $("vt2").value = ""; $("ical").value = ""; vt1T = vt2T = null;
+      $("evaluador").value = pref.leer("vivo47-evaluador");
       const pesoApp = (() => { const v = filas.map((r) => r["V'O₂ [l/min]"] / r["V'O₂/kg [l/min/kg]"]).filter((x) => isFinite(x)).sort((a, b) => a - b); return v.length ? v[v.length >> 1] : NaN; })();
       $("peso").placeholder = isFinite(pesoApp) ? `Del perfil de la app: ${pesoApp.toFixed(1)} kg` : "Se toma del perfil de la app";
       $("fileinfo").innerHTML = `<b>${esc(file.name)}</b><span>${filas.length} respiraciones · ${VO2_PDF_fecha(info.fecha)}</span>`;
       $("fileinfo").hidden = false;
-      if ($("edad").value) analizar(); else { okMsg("Archivo cargado. Escribe la edad y da clic en <b>Analizar prueba</b>."); $("edad").focus(); }
+      okMsg("Archivo cargado. Escribe la <b>edad</b>, elige el <b>sexo</b> y da clic en <b>Analizar prueba</b>."); $("edad").focus();
     } catch (e) { filas = null; mostrarError(e.message || "No se pudo leer el archivo."); }
   }
   const VO2_PDF_fecha = (f) => VO2PDF.fechaLarga(f);
 
+  function mmssASeg(t) {
+    const m = String(t || "").trim().match(/^(\d{1,2}):([0-5]?\d)$/); return m ? +m[1] * 60 + +m[2] : null;
+  }
   function socioDelForm() {
     const num = (id) => { const v = parseFloat($(id).value); return isFinite(v) && v > 0 ? v : null; };
-    return { nombre: $("nombre").value.trim(), sexo: $("sexoM").checked ? "M" : "H", edad: num("edad") ? Math.round(num("edad")) : null, peso: num("peso"), vt1Fc: num("vt1"), vt2Fc: num("vt2"), evaluador: $("evaluador").value.trim() };
+    const sexo = $("sexoM").checked ? "M" : $("sexoH").checked ? "H" : null;
+    return { nombre: $("nombre").value.trim(), sexo, edad: num("edad") ? Math.round(num("edad")) : null, peso: num("peso"), vt1Fc: num("vt1"), vt2Fc: num("vt2"), vt1T, vt2T, inicioCal: mmssASeg($("ical").value), evaluador: $("evaluador").value.trim() };
   }
 
   function analizar() {
@@ -67,10 +70,12 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
     if (!listo()) { mostrarError("Las herramientas de la página no cargaron. Recarga la página; si sigue igual, revisa tu conexión a internet."); return; }
     if (!filas) { mostrarError("Primero elige el Excel de la prueba en el paso 1."); return; }
     const s = socioDelForm();
-    if (!s.edad) { mostrarError("Escribe la edad del socio: sin ella no hay percentil ni comparación por edad."); $("edad").focus(); return; }
+    if (!s.edad) { mostrarError("Escribe la edad del socio: sin ella el percentil sale mal (se compara contra personas de su edad)."); $("edad").focus(); return; }
+    if (!s.sexo) { mostrarError("Elige el sexo del socio: el percentil usa tablas distintas para hombres y mujeres."); return; }
+    if ($("ical").value.trim() && s.inicioCal == null) { mostrarError("El inicio del calentamiento debe escribirse como mm:ss, por ejemplo 1:50."); $("ical").focus(); return; }
     try {
       actual = VO2.analizar(filas, archivo, s);
-      memoria.guardar(claveDe(archivo), { nombre: s.nombre, sexo: s.sexo, edad: s.edad, evaluador: s.evaluador, lada: $("lada").value, telnum: SB ? "" : $("telnum").value.trim() });
+      pref.guardar("vivo47-evaluador", s.evaluador);
       const tel = telefonoForm();
       let nota = "";
       if (tel) {
@@ -85,7 +90,7 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
       } else if ($("telnum").value.trim()) nota = " El teléfono no es válido, así que no se guardó en el historial.";
       else nota = " Sin teléfono: no se guardó en el historial.";
       pintar(actual);
-      okMsg(`Listo: ${esc(actual.etiquetaVo2)} ${f1(actual.vo2max)} para ${esc(s.nombre || "el socio")}. Los PDF están en <a href="#resultado">Descargar</a>.${nota}`);
+      okMsg(`Listo: ${esc(actual.etiquetaVo2)} ${f1(actual.vo2max)} para ${esc(s.nombre || "el socio")} (${s.edad} años, ${s.sexo === "M" ? "mujer" : "hombre"}). Los PDF están en <a href="#resultado">Descargar</a>.${nota}`);
       const r = $("resultado"); if (r.getBoundingClientRect().top > window.innerHeight * 0.6) r.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) { mostrarError("No se pudo analizar la prueba: " + (e && e.message ? e.message : "error desconocido")); }
   }
@@ -106,10 +111,14 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
       <div class="verdict"><span class="dot ${est}" aria-hidden="true">${SIM[est]}</span><div><b>${esc(titulo)}</b><p>${detalle}</p></div></div>
       <div class="stats">
         <div class="stat"><span>FC máxima</span><b>${r.fcMax}<small>lpm</small></b><em>Reposo ${r.fcReposo}</em></div>
-        <div class="stat"><span>VT1</span><b>${r.vt1.fc}<small>lpm</small></b><em>~${kmh(r.vt1.velocidad)} km/h · ${r.vt1.metodo}</em></div>
-        <div class="stat"><span>VT2</span><b>${r.vt2.fc}<small>lpm</small></b><em>~${kmh(r.vt2.velocidad)} km/h · ${r.vt2.metodo}</em></div>
+        <div class="stat"><span>UV1</span><b>${r.vt1.fc}<small>lpm</small></b><em>~${kmh(r.vt1.velocidad)} km/h · ${r.vt1.metodo === "validado" ? "a mano" : "automático"}</em></div>
+        <div class="stat"><span>UV2</span><b>${r.vt2.fc}<small>lpm</small></b><em>~${kmh(r.vt2.velocidad)} km/h · ${r.vt2.metodo === "validado" ? "a mano" : "automático: defínelo a mano"}</em></div>
         <div class="stat"><span>Vel. máxima</span><b>${kmh(r.velMax)}<small>km/h</small></b><em>App: ${f1(r.vo2maxApp)} VO₂</em></div>
       </div>
+      <div class="sec"><h2>Umbrales: márcalos a mano</h2>
+        <p class="hint">Equivalentes ventilatorios (VE/VO₂ y VE/VCO₂, eje izquierdo) y PetO₂/PetCO₂ (eje derecho). Elige UV1 o UV2 y haz clic en la gráfica donde veas el cambio; la prueba se recalcula sola.</p>
+        <div class="uvsel" role="group" aria-label="Umbral a marcar"><button type="button" class="btn uvb" data-uv="uv1">Marcar UV1</button><button type="button" class="btn uvb" data-uv="uv2">Marcar UV2</button><button type="button" class="btn uvb" data-uv="borrar">Volver a automático</button></div>
+        <div id="gUV" class="guv"></div></div>
       ${evolucionHtml(r)}
       <div class="sec"><h2>Descargar</h2>
         <div class="dls">
@@ -126,8 +135,38 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
       <div class="sec"><h2>Validaciones de calidad</h2>
         <ul class="vlist">${r.validaciones.map((v) => `<li><span class="dot ${v.estado}" aria-hidden="true">${SIM[v.estado]}</span><div><b>${esc(v.nombre)}</b><span class="st">${LAB[v.estado]}</span><p>${esc(v.detalle)}</p></div></li>`).join("")}</ul>
       </div>`;
+    pintarUV(r);
     $("dlSocio").onclick = () => descargar("socio");
     $("dlPersonal").onclick = () => descargar("personal");
+  }
+  function pintarUV(r) {
+    const ser = (r.serie || []).filter((p) => p.eqo2_s > 0 && p.eqo2_s < 80), box = $("gUV"); if (!box || ser.length < 5) return;
+    const W = 640, H = 260, L = 38, R = 38, T = 10, B = 24, t0 = ser[0].t, t1 = ser[ser.length - 1].t;
+    const rng = (k) => { const v = ser.map((p) => p[k]).filter(isFinite); return [Math.min(...v), Math.max(...v)]; };
+    const [a0, a1] = [Math.min(...rng("eqo2_s"), ...rng("eqco2_s")), Math.max(...rng("eqo2_s"), ...rng("eqco2_s"))];
+    const [b0, b1] = [Math.min(...rng("peto2_s"), ...rng("petco2_s")), Math.max(...rng("peto2_s"), ...rng("petco2_s"))];
+    const X = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R), Ya = (v) => T + (1 - (v - a0) / (a1 - a0 || 1)) * (H - T - B), Yb = (v) => T + (1 - (v - b0) / (b1 - b0 || 1)) * (H - T - B);
+    const line = (k, y, col, dash) => `<polyline fill="none" stroke="${col}" stroke-width="2" ${dash ? 'stroke-dasharray="5 3"' : ""} points="${ser.map((p) => X(p.t).toFixed(1) + "," + y(p[k]).toFixed(1)).join(" ")}"/>`;
+    const mm = (t) => Math.floor(t / 60) + ":" + String(Math.round(t % 60)).padStart(2, "0");
+    let ticks = ""; for (let t = Math.ceil(t0 / 120) * 120; t <= t1; t += 120) ticks += `<text x="${X(t)}" y="${H - 6}" font-size="10" text-anchor="middle" fill="#888">${mm(t)}</text>`;
+    const marca = (u, col, nom) => { if (!u || u.tiempo == null) return ""; return `<line x1="${X(u.tiempo)}" x2="${X(u.tiempo)}" y1="${T}" y2="${H - B}" stroke="${col}" stroke-dasharray="4 3" stroke-width="1.5"/><text x="${X(u.tiempo) + 3}" y="${T + 10}" font-size="11" font-weight="700" fill="${col}">${nom} ${u.fc}</text>`; };
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="cursor:crosshair;display:block" id="svgUV">
+      <text x="${L}" y="8" font-size="10" fill="#888">VE/VO₂ · VE/VCO₂</text><text x="${W - R}" y="8" font-size="10" text-anchor="end" fill="#888">PetO₂ · PetCO₂ (mmHg)</text>
+      ${line("eqo2_s", Ya, "#1f77b4")}${line("eqco2_s", Ya, "#2ca02c")}${line("peto2_s", Yb, "#d9822b", true)}${line("petco2_s", Yb, "#9467bd", true)}${ticks}
+      ${marca(r.vt1, "#0a7d3e", "UV1")}${marca(r.vt2, "#c0392b", "UV2")}</svg>
+      <p class="hint"><span style="color:#1f77b4">━ VE/VO₂</span> · <span style="color:#2ca02c">━ VE/VCO₂</span> · <span style="color:#d9822b">╌ PetO₂</span> · <span style="color:#9467bd">╌ PetCO₂</span>. Tiempo en mm:ss desde el inicio del archivo.</p>`;
+    const svg = $("svgUV");
+    svg.onclick = (ev) => {
+      if (!modoUV) return;
+      const bb = svg.getBoundingClientRect(), x = ((ev.clientX - bb.left) / bb.width) * W, t = Math.round(t0 + ((x - L) / (W - L - R)) * (t1 - t0));
+      if (modoUV === "uv1") vt1T = t; else vt2T = t;
+      analizar();
+    };
+    document.querySelectorAll(".uvb").forEach((b) => (b.onclick = () => {
+      if (b.dataset.uv === "borrar") { vt1T = vt2T = null; $("vt1").value = ""; $("vt2").value = ""; analizar(); return; }
+      modoUV = b.dataset.uv; document.querySelectorAll(".uvb").forEach((x) => x.classList.toggle("on", x === b));
+    }));
+    document.querySelectorAll(".uvb").forEach((x) => x.classList.toggle("on", x.dataset.uv === modoUV));
   }
   function evolucionHtml(r) {
     const c = r.historial; if (!c) return "";
@@ -219,7 +258,7 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
       return `<div class="hsocio"><button type="button" data-tel="${esc(x.telefono)}" aria-expanded="${!!ps}">
         <span><b>${esc(x.nombre || "Sin nombre")}</b><br><span class="m">${esc(VO2H.telefonoLegible(x.telefono))}</span></span>
         <span class="m">${x.pruebas} prueba${x.pruebas > 1 ? "s" : ""}<br>última ${VO2H.fechaCorta(x.ultima)}</span></button>
-        ${ps ? `<div class="htabla"><table class="hpruebas"><thead><tr><th>Fecha</th><th>VO₂</th><th>VT1</th><th>VT2</th><th>Vel. máx</th><th>Peso</th><th></th></tr></thead><tbody>${ps.map((p) => `<tr><td>${VO2H.fechaCorta(p.fecha)}</td><td><b>${p.vo2max.toFixed(1)}</b>${p.maxima ? "" : " pico"}</td><td>${p.vt1.fc}</td><td>${p.vt2.fc}</td><td>${p.velMax != null ? p.velMax : "—"}</td><td>${p.peso != null ? p.peso : "—"}</td><td><button type="button" data-borrar="${esc(p.fecha)}" data-tel="${esc(p.telefono)}">Borrar</button></td></tr>`).join("")}</tbody></table></div>` : ""}
+        ${ps ? `<div class="htabla"><table class="hpruebas"><thead><tr><th>Fecha</th><th>VO₂</th><th>UV1</th><th>UV2</th><th>Vel. máx</th><th>Peso</th><th></th></tr></thead><tbody>${ps.map((p) => `<tr><td>${VO2H.fechaCorta(p.fecha)}</td><td><b>${p.vo2max.toFixed(1)}</b>${p.maxima ? "" : " pico"}</td><td>${p.vt1.fc}</td><td>${p.vt2.fc}</td><td>${p.velMax != null ? p.velMax : "—"}</td><td>${p.peso != null ? p.peso : "—"}</td><td><button type="button" data-borrar="${esc(p.fecha)}" data-tel="${esc(p.telefono)}">Borrar</button></td></tr>`).join("")}</tbody></table></div>` : ""}
       </div>`;
     }).join("");
   }
@@ -265,37 +304,37 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
     pintar(actual); filas = null; esEjemplo = false;
   }
   llenarLadas(); pintarHistorial();
-  // ---- Supabase: historial en línea con inicio de sesión del personal ----
+  // ---- Firebase: historial en línea con inicio de sesión del personal ----
   function fallaDb(codigo) {
     histMsg(codigo === "sin-sesion" ? "Inicia sesión para usar el historial."
-      : codigo === "42501" || codigo === "PGRST301" ? "Esta cuenta no tiene permiso para escribir en el historial."
+      : codigo === "permission-denied" ? "Esta cuenta no tiene permiso para usar el historial (el correo debe estar en la lista del personal)."
       : "No se pudo guardar en el historial en línea (" + esc(codigo) + "). Revisa tu conexión y vuelve a analizar la prueba.");
   }
   function estadoAlmacen() {
     $("histdonde").textContent = !SB ? "Pruebas guardadas solo en este navegador, ligadas al teléfono de cada socio. Exporta un respaldo seguido."
-      : VO2H.conectado() ? "Historial en línea (Supabase): lo ves desde cualquier computadora con tu cuenta del personal." : "Historial en línea protegido: inicia sesión para verlo.";
+      : VO2H.conectado() ? "Historial en línea (Firebase): lo ves desde cualquier computadora con tu cuenta del personal." : "Historial en línea protegido: inicia sesión para verlo.";
   }
   if (SB) {
     VO2H.modoNube();
-    const sb = window.supabase.createClient(CFG.url, CFG.anonKey);
+    firebase.initializeApp(CFG);
+    const auth = firebase.auth(), db = firebase.firestore();
     const mostrarSesion = (on) => { $("login").hidden = on; $("salir").hidden = !on; $("buscar").hidden = !on; $("histlista").hidden = !on; $("exportar").hidden = !on; $("importar").parentElement.hidden = !on; };
-    async function entrar(sesion) {
-      if (!sesion) { VO2H.desconectar(); mostrarSesion(false); estadoAlmacen(); pintarHistorial(); return; }
+    mostrarSesion(false);
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) { VO2H.desconectar(); mostrarSesion(false); estadoAlmacen(); pintarHistorial(); return; }
       try {
-        const r = await VO2H.conectarSupabase(sb, fallaDb);
+        const r = await VO2H.conectarFirebase(db, fallaDb);
         mostrarSesion(true); estadoAlmacen(); pintarHistorial(); revisarTelefono(false);
         if (r.subidos) histMsg(`Se subieron ${r.subidos} prueba${r.subidos > 1 ? "s" : ""} que estaban guardadas solo en este navegador.`);
-      } catch (e) { mostrarSesion(false); histMsg("No se pudo cargar el historial (" + esc((e && (e.code || e.message)) || "error") + ")."); }
-    }
-    mostrarSesion(false);
-    sb.auth.onAuthStateChange((ev, ses) => { if (ev === "SIGNED_IN" || ev === "INITIAL_SESSION" || ev === "SIGNED_OUT") setTimeout(() => entrar(ses), 0); });
+      } catch (e) { mostrarSesion(false); fallaDb((e && e.code) || "error"); }
+    });
     $("login").addEventListener("submit", async (e) => {
       e.preventDefault(); histMsg("");
-      const { error } = await sb.auth.signInWithPassword({ email: $("loginMail").value.trim(), password: $("loginPass").value });
-      if (error) histMsg("No se pudo iniciar sesión: correo o contraseña incorrectos."); else $("loginPass").value = "";
+      try { await auth.signInWithEmailAndPassword($("loginMail").value.trim(), $("loginPass").value); $("loginPass").value = ""; }
+      catch (err) { histMsg(err && err.code === "auth/too-many-requests" ? "Demasiados intentos. Espera unos minutos e inténtalo de nuevo." : "No se pudo iniciar sesión: correo o contraseña incorrectos."); }
     });
-    $("salir").addEventListener("click", () => sb.auth.signOut());
-  } else if (CFG.url) histMsg("No cargó la librería de Supabase. Revisa tu conexión a internet y recarga la página.");
+    $("salir").addEventListener("click", () => auth.signOut());
+  } else if (CFG.apiKey) histMsg("No cargó la librería de Firebase. Revisa tu conexión a internet y recarga la página.");
   estadoAlmacen();
   try { cargarEjemplo(); } catch (e) { $("resultado").innerHTML = '<p class="hint">Sube un Excel para ver el resultado aquí.</p>'; }
   window.addEventListener("load", () => { if (!listo()) { $("libs").textContent = "Las herramientas de la página no cargaron. Recarga la página; si sigue igual, revisa tu conexión a internet."; $("libs").hidden = false; } });

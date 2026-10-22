@@ -40,7 +40,7 @@
     const s = r.socio, v1 = r.vt1, v2 = r.vt2, ps = [];
     ps.push(`Tu cuerpo puede usar hasta <b>${f1(r.vo2max)} mililitros de oxígeno por cada kilo, cada minuto</b>. Ese es tu motor: entre más oxígeno aprovechas, más energía produces y más rápido o más tiempo puedes moverte. ${frasePercentil(r)}`);
     if (!r.maxima) ps.push("En esta prueba no llegaste del todo a tu límite, así que este valor es tu <b>VO₂ pico</b>: tu capacidad real probablemente es un poco mayor. Te recomendamos repetir la prueba.");
-    ps.push(`Tu <b>umbral aeróbico (VT1)</b> está en <b>${v1.fc} lpm</b>, alrededor de ${kmh(v1.velocidad)} km/h. Por debajo de ese ritmo puedes hablar, tu cuerpo usa bastante grasa como combustible y puedes sostener el esfuerzo por mucho tiempo. Tu <b>umbral anaeróbico (VT2)</b> está en <b>${v2.fc} lpm</b>, alrededor de ${kmh(v2.velocidad)} km/h. Arriba de ese punto el cansancio se acumula rápido y solo aguantas unos minutos.`);
+    ps.push(`Tu <b>umbral aeróbico (UV1)</b> está en <b>${v1.fc} lpm</b>, alrededor de ${kmh(v1.velocidad)} km/h. Por debajo de ese ritmo puedes hablar, tu cuerpo usa bastante grasa como combustible y puedes sostener el esfuerzo por mucho tiempo. Tu <b>umbral anaeróbico (UV2)</b> está en <b>${v2.fc} lpm</b>, alrededor de ${kmh(v2.velocidad)} km/h. Arriba de ese punto el cansancio se acumula rápido y solo aguantas unos minutos.`);
     const base = v1.pctVo2max >= 70 ? "Tu base aeróbica está muy desarrollada: trabajas cómodo hasta un porcentaje alto de tu capacidad." : v1.pctVo2max >= 55 ? "Tu base aeróbica es sólida." : "Tu umbral aeróbico llega pronto: entrenar más tiempo en zona 2 hará que puedas correr más rápido con el mismo esfuerzo.";
     const umb = v2.pctVo2max >= 88 ? "Además, aguantas ritmos muy cercanos a tu máximo antes de fatigarte." : v2.pctVo2max >= 78 ? "Tu umbral anaeróbico está en un rango típico de personas entrenadas." : "El trabajo de umbral (zona 4) te ayudará a sostener ritmos más rápidos sin fatigarte.";
     ps.push(base + " " + umb);
@@ -54,12 +54,12 @@
     const z = Object.fromEntries(r.zonas.map((x) => [x.codigo, x])), recs = [`Haz la mayor parte de tu entrenamiento (alrededor del 80 % del tiempo) en <b>zona 1 y 2</b>, por debajo de <b>${r.vt1.fc} lpm</b>.`];
     if (["Bajo", "Regular", "Promedio", "Sin referencia (falta edad)"].includes(r.categoria)) {
       recs.push("Empieza con 3 sesiones por semana de 30 a 45 minutos en zona 2. La constancia pesa más que la intensidad.");
-      recs.push(`Cuando lleves 4 semanas constantes, agrega una sesión de intervalos en zona 4 (${z.Z4.fcMin}–${z.Z4.fcMax} lpm).`);
+      recs.push(`Cuando tengas una base sólida, tu entrenador puede agregar una sesión de intervalos en zona 4 (${z.Z4.fcMin}–${z.Z4.fcMax} lpm).`);
     } else {
       recs.push(`Una o dos sesiones por semana de calidad: intervalos en zona 4 (${z.Z4.fcMin}–${z.Z4.fcMax} lpm) o series cortas en zona 5.`);
       recs.push("Evita que tus rodajes \"fáciles\" se vuelvan zona 3: ese ritmo cansa sin dar los beneficios de las zonas 2 ni 4.");
     }
-    recs.push("Repite la prueba en 8 a 12 semanas para medir tu avance y ajustar tus zonas.");
+    recs.push("Tu evaluador y tu entrenador te dirán cuándo repetir la prueba y cómo ajustar tu plan con estas zonas.");
     return recs;
   }
   const NOTA_ALTITUD = "Guadalajara está a unos 1,560 m sobre el nivel del mar. A esta altura el VO₂max sale entre 3 y 5 % más bajo que a nivel del mar, así que tu valor a nivel del mar sería un poco mayor.";
@@ -68,14 +68,15 @@
   function decisionEntrega(r) {
     const auto = r.vt1.metodo !== "validado" || r.vt2.metodo !== "validado", rojas = r.validaciones.filter((v) => v.estado === "falla");
     if (rojas.length) return ["revisar", "Revisar antes de entregar", `Validaciones en rojo: <b>${rojas.map((v) => v.nombre.toLowerCase()).join(", ")}</b>. Lee el detalle abajo antes de decidir si se entrega o se repite la prueba.`];
-    if (auto) return ["validar", "Listo para validar umbrales", "La calidad de los datos es suficiente. Antes de entregar, confirma VT1 y VT2 en las gráficas de la página 2."];
+    if (r.vt2.metodo !== "validado") return ["validar", "Falta definir UV2 a mano", "La calidad de los datos es suficiente, pero el UV2 automático no es confiable con este equipo (los equivalentes y la PetCO₂ no responden bien). Defínelo en las gráficas y confirma UV1 antes de entregar."];
+    if (auto) return ["validar", "Falta confirmar UV1", "UV2 está definido a mano. Confirma UV1 en las gráficas antes de entregar."];
     return ["ok", "Listo para entregar", "Datos de buena calidad y umbrales validados por el personal."];
   }
   function mensajesClave(r) {
     const s = r.socio, z2 = r.zonas[1], ms = [];
     ms.push(r.percentil != null ? `Su ${r.etiquetaVo2} es ${f1(r.vo2max)}: nivel <b>${r.categoria.toLowerCase()}</b> (percentil ${Math.round(r.percentil)} de ${genero(s.sexo)} de ${grupoEdad(s.edad)}).` : `Su ${r.etiquetaVo2} es ${f1(r.vo2max)} mL/kg/min (falta edad para el percentil).`);
     ms.push(`Su ritmo "fácil" de verdad es por debajo de <b>${r.vt1.fc} lpm</b> (zona 2: ${z2.fcMin}–${z2.fcMax} lpm, ${rangoVel(z2)}).`);
-    ms.push(`Su límite sostenible (VT2) es <b>${r.vt2.fc} lpm</b> a ~${kmh(r.vt2.velocidad)} km/h.`);
+    ms.push(`Su límite sostenible (UV2) es <b>${r.vt2.fc} lpm</b> a ~${kmh(r.vt2.velocidad)} km/h.`);
     return ms;
   }
   function guion(r) {
@@ -85,7 +86,7 @@
       ["Explica qué significa", "\"Es cuánto oxígeno puede usar tu cuerpo por cada kilo en un minuto de esfuerzo máximo. Es como los caballos de fuerza de un coche.\""],
       ["Enseña sus dos umbrales", `"Hasta ${r.vt1.fc} pulsaciones puedes platicar y aguantar mucho tiempo; es tu zona de base. A partir de ${r.vt2.fc} el cansancio se acumula rápido."`],
       ["Entrega sus zonas", "Recorre la tabla de zonas de la página 2 y relaciona cada zona con un tipo de sesión de su plan actual."],
-      ["Cierra con un plan", "Acuerden la siguiente prueba en 8 a 12 semanas y 1 o 2 cambios concretos para su semana."],
+      ["Cierra con un plan", "El evaluador y el entrenador definen con el socio los cambios de su semana y cuándo repetir la prueba."],
     ];
     if (r.historial) pasos.splice(pasos.length - 1, 0, ["Muestra su evolución", r.historial.guion + " Apóyate en la sección «Tu evolución» de su reporte."]);
     if (!r.maxima) pasos.splice(1, 0, ["Aclara que no fue máxima", "\"En esta prueba no llegaste a tu límite, así que el valor real es probablemente más alto. Vale la pena repetirla.\""]);
@@ -96,8 +97,6 @@
     return [
       ["¿Por qué la app de Spiro Fit me dio otro número?", `La app dio ${f1(r.vo2maxApp)} y el reporte ${f1(r.vo2max)} (${dif >= 0 ? "+" : ""}${f0(dif)} %). La app resta un volumen de aire que no participa en el intercambio y eso subestima el oxígeno entre 10 y 20 %. Nosotros recalculamos con el método que validó nuestro especialista en laboratorio, y lo comprobamos con el costo de oxígeno de correr.`],
       ["¿Por qué mis zonas no coinciden con las de mi reloj o la app?", "El reloj usa fórmulas por edad y la app coloca el primer umbral demasiado alto. Tus zonas salen de tu respiración real durante la prueba."],
-      ["¿Cuánto puedo mejorar?", "Con 8 a 12 semanas de entrenamiento constante es común subir entre 5 y 15 %. Quien parte de un nivel más bajo suele mejorar más."],
-      ["¿Cada cuánto repito la prueba?", "Cada 8 a 12 semanas, en condiciones similares: sin entrenamiento fuerte el día anterior, 2 a 3 horas después de comer y con la misma banda."],
     ];
   }
   function alertas(r) {
@@ -105,7 +104,7 @@
     for (const v of r.validaciones) {
       if (v.estado === "ok") continue;
       if (v.nombre === "Calentamiento") al.push("El inicio de la prueba sugiere nervios o hiperventilación. Si repite, dale 3 a 5 min de reposo con la mascarilla puesta antes de empezar.");
-      else if (v.nombre === "Esfuerzo máximo" && !r.maxima) al.push("No presentes el valor como su máximo; propón repetir la prueba en 1 a 2 semanas animándolo más en la última etapa.");
+      else if (v.nombre === "Esfuerzo máximo" && !r.maxima) al.push("No presentes el valor como su máximo; valora con el entrenador si conviene repetir la prueba, animándolo más en la última etapa.");
       else if (v.nombre === "Final de la prueba") al.push("El VO₂ cayó al final: revisa que la mascarilla no se haya movido. El VO₂max reportado es el pico antes de la caída.");
       else if (v.nombre === "Peso") al.push("Corrige el peso en el perfil de la app para la próxima prueba.");
       else if (v.nombre === "Duración del ejercicio") al.push("La prueba fue más larga o corta de lo ideal; ajusta los incrementos de velocidad en la siguiente.");
@@ -230,7 +229,7 @@
     return out;
   }
   function panel(L, o) {
-    const { doc } = L, x0 = o.x + 30, y0 = o.y + 24, w = o.w - 36, h = o.h - 24 - (o.xlabel ? 24 : 12);
+    const { doc } = L, x0 = o.x + 30, y0 = o.y + 24, w = o.w - (o.y2 ? 68 : 36), h = o.h - 24 - (o.xlabel ? 24 : 12);
     const X = (v) => x0 + (v - o.xmin) / (o.xmax - o.xmin) * w, Y = (v) => y0 + h - (v - o.ymin) / (o.ymax - o.ymin) * h;
     L.font("s", 8.5, C.negro); doc.text(o.title, o.x, o.y + 8);
     if (o.fondo) o.fondo(X, Y, x0, y0, w, h);
@@ -238,7 +237,13 @@
     for (const t of niceTicks(o.ymin, o.ymax, o.ny || 5)) { doc.line(x0, Y(t), x0 + w, Y(t)); L.font("r", 6.8, C.tinta2); doc.text(String(t), x0 - 4, Y(t) + 2.3, { align: "right" }); }
     for (const t of niceTicks(o.xmin, o.xmax, o.nx || 7)) { L.font("r", 6.8, C.tinta2); doc.text(String(t), X(t), y0 + h + 9, { align: "center" }); }
     if (o.xlabel) { L.font("r", 7, C.tinta2); doc.text(o.xlabel, x0 + w / 2, y0 + h + 20, { align: "center" }); }
-    return { X, Y, x0, y0, w, h };
+    let Y2 = null;
+    if (o.y2) {
+      Y2 = (v) => y0 + h - (v - o.y2.min) / (o.y2.max - o.y2.min) * h;
+      for (const t of niceTicks(o.y2.min, o.y2.max, o.y2.ny || 5)) { L.font("r", 6.8, C.tinta2); doc.text(String(t), x0 + w + 5, Y2(t) + 2.3); }
+      L.font("s", 7, C.tinta2); doc.text(o.y2.titulo, o.x + o.w, o.y + 8, { align: "right" });
+    }
+    return { X, Y, Y2, x0, y0, w, h };
   }
   function linea(doc, xs, ys, X, Y, color, lw) {
     doc.setDrawColor(color); doc.setLineWidth(lw); doc.setLineCap("round"); doc.setLineJoin("round");
@@ -250,25 +255,97 @@
   function punto(doc, x, y, color) { doc.setFillColor("#ffffff"); doc.circle(x, y, 4.5, "F"); doc.setFillColor(color); doc.circle(x, y, 3, "F"); }
   function rollMed(a, w) { const h = Math.floor(w / 2); return a.map((_, i) => { const v = a.slice(Math.max(0, i - h), i + w - h).filter(isNum).sort((p, q) => p - q); return v.length ? (v.length % 2 ? v[v.length >> 1] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : NaN; }); }
 
+  const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, "0")}`.replace(/^(\d+):60$/, (m, a) => `${+a + 1}:00`);
+  /** Franjas de fase como en el reporte del experto: B base, C calentamiento, E etapas, R recuperación. */
+  function fasesFondo(L, r, X, y0, h, etiquetas = true) {
+    const { doc } = L, e1 = r.etapas.length > 1 ? r.etapas[1].inicio : r.inicioCalentamiento, bandas = [["B", 0, r.inicioCalentamiento, "#efeee9"], ["C", r.inicioCalentamiento, e1, "#e4ebf6"], ["E", e1, r.finEjercicio, null], ["R", r.finEjercicio, r.tFinal, "#efeee9"]];
+    for (const [k, a, b, col] of bandas) {
+      if (b <= a) continue; const xa = X(a / 60), xb = X(b / 60);
+      if (col) { doc.setFillColor(col); doc.rect(xa, y0, xb - xa, h, "F"); }
+      if (etiquetas) { L.font("s", 7.5, C.tenue); doc.text(k, (xa + xb) / 2, y0 + 8, { align: "center" }); }
+    }
+  }
+  function marcasUV(L, r, X, y0, h) {
+    const { doc } = L;
+    for (const [u, n] of [[r.vt1, "UV1"], [r.vt2, "UV2"]]) { const x = X(u.tiempo / 60); doc.setDrawColor(C.negro); doc.setLineWidth(0.9); doc.setLineDashPattern([3, 2], 0); doc.line(x, y0, x, y0 + h); doc.setLineDashPattern([], 0); L.font("s", 7, C.negro); doc.text(`${n} · ${mmss(u.tiempo)}`, x + 2, y0 + h - 3); }
+  }
+  function leyenda(L, x, y, items) {
+    const { doc } = L; let cx = x;
+    for (const [txt, col, dash] of items) {
+      doc.setDrawColor(col); doc.setLineWidth(1.8); if (dash) doc.setLineDashPattern([3, 2], 0); doc.line(cx, y, cx + 12, y); doc.setLineDashPattern([], 0);
+      L.font("r", 7, C.negro); doc.text(txt, cx + 16, y + 2.4); cx += 22 + doc.getTextWidth(txt);
+    }
+  }
+  function lineaDash(doc, xs, ys, X, Y, color, lw) { doc.setLineDashPattern([4, 2.5], 0); linea(doc, xs, ys, X, Y, color, lw); doc.setLineDashPattern([], 0); }
+
+  /** Hoja del personal: VO₂ y VCO₂ (eje izquierdo) con la FC (eje derecho), en tiempo absoluto. */
+  function graficaVo2Fc(L, r, y, alto) {
+    const { doc } = L, d = r.datos, xs = d.map((x) => x.t / 60), tmax = r.tFinal / 60;
+    const fcs = d.map((x) => (x.hr > 30 ? x.hr : NaN)), hr = rollMed(fcs, 5), fmin = Math.floor((Math.min(...fcs.filter(isNum)) - 5) / 10) * 10, fmax = Math.ceil((r.fcMax + 8) / 10) * 10;
+    const p = panel(L, { x: M, y, w: ANCHO, h: alto, xmin: 0, xmax: tmax, ymin: 0, ymax: Math.ceil((r.vo2max * 1.2) / 10) * 10, title: "VO₂ y VCO₂ (mL/kg/min, promedio de 30 s) y frecuencia cardiaca", xlabel: "Tiempo (min)", ny: 6, nx: 9,
+      y2: { min: fmin, max: fmax, ny: 6, titulo: "FC (lpm)" }, fondo: (X, Y, x0, y0, w, h) => fasesFondo(L, r, X, y0, h) });
+    linea(doc, xs, d.map((x) => x.vco2kg30s), p.X, p.Y, C.naranja, 1.6);
+    linea(doc, xs, d.map((x) => x.vo2kg30s), p.X, p.Y, C.azul, 1.8);
+    lineaDash(doc, xs, hr, p.X, p.Y2, C.negro, 1.2);
+    marcasUV(L, r, p.X, p.y0, p.h);
+    const px = p.X(r.vo2maxTiempo / 60), py = p.Y(r.vo2max); punto(doc, px, py, C.azul); L.font("s", 7.5, C.negro); doc.text(`${r.etiquetaVo2} ${f1(r.vo2max)}`, px - 7, py - 5, { align: "right" });
+    leyenda(L, p.x0 + 4, y + 12, [["VO₂", C.azul], ["VCO₂", C.naranja], ["FC (eje derecho)", C.negro, true]]);
+    L.y = y + alto + 6;
+  }
+  /** Equivalentes (eje izquierdo) y presiones PET (eje derecho) en la misma gráfica. */
+  function graficaEqPet(L, r, y, alto) {
+    const { doc } = L, b = r.serie, xs = b.map((x) => x.t / 60), tmax = r.tFinal / 60;
+    const rango = (campos, a, z) => { const v = []; for (const x of b) if (x.t >= a && x.t <= z) for (const c of campos) if (isNum(x[c])) v.push(x[c]); return [Math.min(...v), Math.max(...v)]; };
+    const [l0, l1] = rango(["eqo2_s", "eqco2_s"], r.inicioCalentamiento, r.finEjercicio + 20), [q0, q1] = rango(["peto2_s", "petco2_s"], r.inicioCalentamiento, r.finEjercicio + 20);
+    const lo = Math.floor((l0 - 3) / 5) * 5, hi = Math.ceil((l1 + 3) / 5) * 5, plo = Math.floor((q0 - 4) / 10) * 10, phi = Math.ceil((q1 + 4) / 10) * 10;
+    const cl = (v, a, z) => (isNum(v) ? Math.min(Math.max(v, a), z) : NaN);
+    const p = panel(L, { x: M, y, w: ANCHO, h: alto, xmin: 0, xmax: tmax, ymin: lo, ymax: hi, title: "Equivalentes ventilatorios y presiones espiradas finales (PET)", xlabel: "Tiempo (min)", ny: 6, nx: 9,
+      y2: { min: plo, max: phi, ny: 6, titulo: "PET (mmHg)" }, fondo: (X, Y, x0, y0, w, h) => fasesFondo(L, r, X, y0, h) });
+    linea(doc, xs, b.map((x) => cl(x.eqo2_s, lo, hi)), p.X, p.Y, C.azul, 1.8);
+    linea(doc, xs, b.map((x) => cl(x.eqco2_s, lo, hi)), p.X, p.Y, C.naranja, 1.8);
+    lineaDash(doc, xs, b.map((x) => cl(x.peto2_s, plo, phi)), p.X, p.Y2, C.azul, 1.4);
+    lineaDash(doc, xs, b.map((x) => cl(x.petco2_s, plo, phi)), p.X, p.Y2, C.naranja, 1.4);
+    marcasUV(L, r, p.X, p.y0, p.h);
+    leyenda(L, p.x0 + 4, y + 12, [["VE/VO₂", C.azul], ["VE/VCO₂", C.naranja], ["PetO₂ (eje derecho)", C.azul, true], ["PetCO₂ (eje derecho)", C.naranja, true]]);
+    L.y = y + alto + 6;
+  }
+  /** V-slope y RER contra VO₂ (el RER es solo de apoyo visual; no se usa como criterio). */
+  function graficasVslope(L, r, y, ph) {
+    const { doc } = L, b = r.bins.filter((x) => x.t >= r.inicioCalentamiento + 45), pw = ANCHO / 2 - 8;
+    const vx = b.map((x) => x.vo2_s / 1000), vy = b.map((x) => x.vco2_s / 1000), rer = b.map((x) => x.vco2_s / x.vo2_s);
+    const rng = (a, pad = 0.06) => { const v = a.filter(isNum), lo = Math.min(...v), hi = Math.max(...v), q = (hi - lo) * pad; return [lo - q, hi + q]; };
+    const [xl, xh] = rng(vx), [yl, yh] = rng(vy), [rl, rh] = rng(rer.concat([1.0]));
+    const marca = (X, Y, ys) => { for (const [u, n] of [[r.vt1, "UV1"], [r.vt2, "UV2"]]) { let j = 0; b.forEach((x, i) => { if (Math.abs(x.t - u.tiempo) < Math.abs(b[j].t - u.tiempo)) j = i; }); const px = X(vx[j]), py = Y(ys[j]); punto(doc, px, py, C.negro); L.font("s", 7, C.negro); doc.text(n, px - 7, py - 4, { align: "right" }); } };
+    const v = panel(L, { x: M, y, w: pw, h: ph, xmin: xl, xmax: xh, ymin: yl, ymax: yh, title: "V-slope: VCO₂ vs VO₂ (L/min)", xlabel: "VO₂ (L/min)" });
+    doc.setDrawColor(C.tenue); doc.setLineWidth(0.6); doc.setLineDashPattern([2, 2], 0); doc.line(v.X(Math.max(xl, yl)), v.Y(Math.max(xl, yl)), v.X(Math.min(xh, yh)), v.Y(Math.min(xh, yh))); doc.setLineDashPattern([], 0);
+    doc.setFillColor(C.azul); vx.forEach((x, i) => { if (isNum(x) && isNum(vy[i])) doc.circle(v.X(x), v.Y(vy[i]), 1.8, "F"); });
+    marca(v.X, v.Y, vy);
+    const q = panel(L, { x: M + pw + 16, y, w: pw, h: ph, xmin: xl, xmax: xh, ymin: rl, ymax: rh, title: "RER vs VO₂ (apoyo visual)", xlabel: "VO₂ (L/min)" });
+    doc.setDrawColor(C.tenue); doc.setLineWidth(0.6); doc.setLineDashPattern([2, 2], 0); doc.line(q.x0, q.Y(1.0), q.x0 + q.w, q.Y(1.0)); doc.setLineDashPattern([], 0);
+    L.font("r", 6.5, C.tenue); doc.text("RER 1.0", q.x0 + q.w - 2, q.Y(1.0) - 2, { align: "right" });
+    linea(doc, vx, rer, q.X, q.Y, C.negro, 1.4); marca(q.X, q.Y, rer);
+    L.y = y + ph + 8;
+  }
+
   function graficaPrueba(L, r, y, alto) {
-    const { doc } = L, d = r.datos.filter((x) => x.t >= r.inicioEjercicio - 30 && x.t <= r.finEjercicio + 120), mins = (t) => (t - r.inicioEjercicio) / 60;
+    const { doc } = L, d = r.datos, mins = (t) => t / 60;
     const xs = d.map((x) => mins(x.t)), xmin = xs[0], xmax = xs[xs.length - 1], ph = alto / 2 - 6;
-    const etapasFondo = (X, Y, x0, y0, w, h, etiquetas) => r.etapas.forEach((e, i) => {
-      const a = X(mins(e.inicio)), b = X(mins(e.fin)); if (i % 2 === 0) { doc.setFillColor(C.suave); doc.rect(a, y0, b - a, h, "F"); }
+    const etapasFondo = (X, Y, x0, y0, w, h, etiquetas) => { fasesFondo(L, r, X, y0, h, false); r.etapas.forEach((e, i) => {
+      const a = X(mins(e.inicio)), b = X(mins(e.fin)); if (i > 0) { doc.setDrawColor(C.gris); doc.setLineWidth(0.4); doc.line(a, y0, a, y0 + h); }
       if (etiquetas) { L.font("r", 6.5, C.tenue); doc.text(kmh(e.velocidad), (a + b) / 2, y0 - 2, { align: "center" }); }
-    });
+    }); };
     const p1 = panel(L, { x: M, y, w: ANCHO, h: ph, xmin, xmax, ymin: 0, ymax: r.vo2max * 1.18, title: "Consumo de oxígeno (mL/kg/min)", fondo: (X, Y, x0, y0, w, h) => etapasFondo(X, Y, x0, y0 + 8, w, h - 8, true) });
     linea(doc, xs, d.map((x) => x.vo2kg30s), p1.X, p1.Y, C.azul, 2);
     const px = p1.X(mins(r.vo2maxTiempo)), py = p1.Y(r.vo2max); punto(doc, px, py, C.azul);
     L.font("s", 8, C.negro); doc.text(`${r.etiquetaVo2} ${f1(r.vo2max)}`, px - 7, py - 5, { align: "right" });
     const zmin = Math.min(r.zonas[0].fcMin, ...d.map((x) => x.hr).filter((h) => h > 30)) - 5;
-    const p2 = panel(L, { x: M, y: y + ph + 12, w: ANCHO, h: ph, xmin, xmax, ymin: zmin, ymax: r.fcMax + 8, title: "Frecuencia cardiaca (lpm) y tus zonas", xlabel: "Minutos de carrera", fondo: (X, Y, x0, y0, w, h) => r.zonas.forEach((z, i) => {
+    const p2 = panel(L, { x: M, y: y + ph + 12, w: ANCHO, h: ph, xmin, xmax, ymin: zmin, ymax: r.fcMax + 8, title: "Frecuencia cardiaca (lpm) y tus zonas", xlabel: "Tiempo (min)", fondo: (X, Y, x0, y0, w, h) => r.zonas.forEach((z, i) => {
       const a = Y(Math.min(z.fcMax, r.fcMax + 8)), b = Y(Math.max(z.fcMin, zmin)); doc.setFillColor(C.zonaFondo[i]); doc.rect(x0, a, w, b - a, "F");
       if (z.fcMax - z.fcMin >= 6) { L.font("r", 6.5, C.tinta2); doc.text(z.codigo, x0 + w + 3, (a + b) / 2 + 2); }
     }) });
     const hr = rollMed(d.map((x) => (x.hr > 30 ? x.hr : NaN)), 5);
     linea(doc, xs, hr, p2.X, p2.Y, C.negro, 2);
-    for (const [u, n] of [[r.vt1, "VT1"], [r.vt2, "VT2"]]) { const ux = p2.X(mins(u.tiempo)), uy = p2.Y(u.fc); punto(doc, ux, uy, C.negro); L.font("s", 7.5, C.negro); doc.text(`${n} · ${u.fc} lpm`, ux - 7, uy - 5, { align: "right" }); }
+    for (const [u, n] of [[r.vt1, "UV1"], [r.vt2, "UV2"]]) { const ux = p2.X(mins(u.tiempo)), uy = p2.Y(u.fc); punto(doc, ux, uy, C.negro); L.font("s", 7.5, C.negro); doc.text(`${n} · ${u.fc} lpm`, ux - 7, uy - 5, { align: "right" }); }
     L.y = y + alto + 8;
   }
 
@@ -276,7 +353,7 @@
     const { doc } = L, b = r.bins.filter((x) => x.t >= r.inicioEjercicio + 45), mins = (t) => (t - r.inicioEjercicio) / 60, xs = b.map((x) => mins(x.t));
     const xmin = Math.min(...xs), xmax = Math.max(...xs), pw = ANCHO / 2 - 8, ph = 175;
     const rng = (a, pad = 0.06) => { const v = a.filter(isNum), lo = Math.min(...v), hi = Math.max(...v), p = (hi - lo) * pad; return [lo - p, hi + p]; };
-    const marcas = (p) => { for (const [u, n] of [[r.vt1, "VT1"], [r.vt2, "VT2"]]) { const x = p.X(mins(u.tiempo)); doc.setDrawColor(C.negro); doc.setLineWidth(0.8); doc.setLineDashPattern([3, 2], 0); doc.line(x, p.y0, x, p.y0 + p.h); doc.setLineDashPattern([], 0); L.font("s", 7, C.negro); doc.text(n, x, p.y0 - 2, { align: "center" }); } };
+    const marcas = (p) => { for (const [u, n] of [[r.vt1, "UV1"], [r.vt2, "UV2"]]) { const x = p.X(mins(u.tiempo)); doc.setDrawColor(C.negro); doc.setLineWidth(0.8); doc.setLineDashPattern([3, 2], 0); doc.line(x, p.y0, x, p.y0 + p.h); doc.setLineDashPattern([], 0); L.font("s", 7, C.negro); doc.text(n, x, p.y0 - 2, { align: "center" }); } };
     let [lo, hi] = rng(b.map((x) => x.eqo2_s).concat(b.map((x) => x.eqco2_s)));
     const a = panel(L, { x: M, y, w: pw, h: ph, xmin, xmax, ymin: lo, ymax: hi, title: "Equivalentes ventilatorios", xlabel: "Minutos de carrera" });
     linea(doc, xs, b.map((x) => x.eqo2_s), a.X, a.Y, C.azul, 1.8); linea(doc, xs, b.map((x) => x.eqco2_s), a.X, a.Y, C.naranja, 1.8); marcas(a);
@@ -289,7 +366,7 @@
     const v = panel(L, { x: M, y: y + ph + 14, w: pw, h: ph, xmin: xl, xmax: xh, ymin: yl, ymax: yh, title: "V-slope: VCO₂ vs VO₂ (L/min)", xlabel: "VO₂ (L/min)" });
     doc.setDrawColor(C.tenue); doc.setLineWidth(0.6); doc.setLineDashPattern([2, 2], 0); doc.line(v.X(Math.max(xl, yl)), v.Y(Math.max(xl, yl)), v.X(Math.min(xh, yh)), v.Y(Math.min(xh, yh))); doc.setLineDashPattern([], 0);
     doc.setFillColor(C.azul); vx.forEach((x, i) => { if (isNum(x) && isNum(vy[i])) doc.circle(v.X(x), v.Y(vy[i]), 1.8, "F"); });
-    for (const [u, n] of [[r.vt1, "VT1"], [r.vt2, "VT2"]]) { let j = 0; b.forEach((x, i) => { if (Math.abs(x.t - u.tiempo) < Math.abs(b[j].t - u.tiempo)) j = i; }); const px = v.X(vx[j]), py = v.Y(vy[j]); punto(doc, px, py, C.negro); L.font("s", 7, C.negro); doc.text(n, px - 7, py - 4, { align: "right" }); }
+    for (const [u, n] of [[r.vt1, "UV1"], [r.vt2, "UV2"]]) { let j = 0; b.forEach((x, i) => { if (Math.abs(x.t - u.tiempo) < Math.abs(b[j].t - u.tiempo)) j = i; }); const px = v.X(vx[j]), py = v.Y(vy[j]); punto(doc, px, py, C.negro); L.font("s", 7, C.negro); doc.text(n, px - 7, py - 4, { align: "right" }); }
     [lo, hi] = rng(b.map((x) => x.petco2_s));
     const c = panel(L, { x: M + pw + 16, y: y + ph + 14, w: pw, h: ph, xmin, xmax, ymin: lo, ymax: hi, title: "PetCO₂ (mmHg)", xlabel: "Minutos de carrera" });
     linea(doc, xs, b.map((x) => x.petco2_s), c.X, c.Y, C.naranja, 1.8); marcas(c);
@@ -342,7 +419,7 @@
       L.font("r", 7, C.tinta2); doc.text(String(z.fcMin), i ? a : a + 6, y + h + 11, { align: "center" });
     });
     doc.text(String(hi), M + ANCHO - 6, y + h + 11, { align: "center" });
-    for (const [u, n] of [[r.vt1, "VT1"], [r.vt2, "VT2"]]) { const xu = X(u.fc); doc.setDrawColor(C.negro); doc.setLineWidth(1.2); doc.line(xu, y - 8, xu, y + h + 2); L.font("s", 7.5, C.negro); doc.text(`${n} · ${u.fc} lpm`, xu, y - 12, { align: "center" }); }
+    for (const [u, n] of [[r.vt1, "UV1"], [r.vt2, "UV2"]]) { const xu = X(u.fc); doc.setDrawColor(C.negro); doc.setLineWidth(1.2); doc.line(xu, y - 8, xu, y + h + 2); L.font("s", 7.5, C.negro); doc.text(`${n} · ${u.fc} lpm`, xu, y - 12, { align: "center" }); }
     L.y = y + h + 20;
   }
 
@@ -397,7 +474,7 @@
     L.nueva(); L.kick("HISTORIAL DEL SOCIO"); L.h1(`${c.todas.length} pruebas · ${c.titularPersonal}`);
     L.pc(`Comparación contra la prueba anterior (${fCorta(c.previa.fecha)}, ${c.periodo} antes). Teléfono del registro: ${r.telefonoLegible || "—"}.`);
     L.h3("Todas sus pruebas");
-    const filas = [["FECHA", "VO₂", "PERC.", "VT1 lpm · km/h", "VT2 lpm · km/h", "VEL. MÁX", "COSTO O₂", "PESO", "CALIDAD"]];
+    const filas = [["FECHA", "VO₂", "PERC.", "UV1 lpm · km/h", "UV2 lpm · km/h", "VEL. MÁX", "COSTO O₂", "PESO", "CALIDAD"]];
     for (const t of c.todas) filas.push([`<b>${fCorta(t.fecha)}</b>`, `<b>${v(t.vo2max, 1)}</b>${t.maxima ? "" : " pico"}`, t.percentil != null ? String(t.percentil) : "—", `${t.vt1.fc} · ${v(t.vt1.velocidad, 1)}`, `${t.vt2.fc} · ${v(t.vt2.velocidad, 1)}`, v(t.velMax, 1), v(t.costo, 0), v(t.peso, 1), t.calidad]);
     L.tabla(filas, [60, 52, 40, 76, 76, 52, 54, 44, ANCHO - 454], { cabecera: true, zebra: true, pad: 2.5, size: 8 });
     L.h3("Cambio contra la prueba anterior");
@@ -414,7 +491,7 @@
     L.kick(`Hola, ${primerNombre(s.nombre)}`); L.h1(titular(r));
     L.pc([fechaLarga(r.fecha)].concat(s.edad ? [`${s.edad} años`] : [], [`${f1(r.peso)} kg`]).join(" · "));
     L.y += 10; heroe(L, r); L.y += 6;
-    tarjetas(L, [["FC máxima", String(r.fcMax), "lpm", "La más alta en la prueba"], ["Umbral aeróbico", String(r.vt1.fc), "lpm", `VT1 · ~${kmh(r.vt1.velocidad)} km/h`], ["Umbral anaeróbico", String(r.vt2.fc), "lpm", `VT2 · ~${kmh(r.vt2.velocidad)} km/h`], ["Velocidad máxima", kmh(r.velMax), "km/h", "Última etapa alcanzada"]]);
+    tarjetas(L, [["FC máxima", String(r.fcMax), "lpm", "La más alta en la prueba"], ["Umbral aeróbico", String(r.vt1.fc), "lpm", `UV1 · ~${kmh(r.vt1.velocidad)} km/h`], ["Umbral anaeróbico", String(r.vt2.fc), "lpm", `UV2 · ~${kmh(r.vt2.velocidad)} km/h`], ["Velocidad máxima", kmh(r.velMax), "km/h", "Última etapa alcanzada"]]);
     L.y += 8; L.h2("¿Qué es el VO₂max?"); L.parrafo(QUE_ES);
     L.h2("Tu resultado en palabras"); for (const p of resumenSocio(r)) L.parrafo(p);
     if (r.historial) L.parrafo(`${r.historial.socio.intro} Mira tu evolución completa en la sección «Tu evolución», al final de este reporte.`);
@@ -427,14 +504,14 @@
     L.tabla(filas, [88, 62, 82, 128, ANCHO - 360], { cabecera: true });
     L.y += 4; L.pc("Velocidades estimadas en caminadora sin inclinación, a partir de tu prueba.");
     L.h2("Tus dos umbrales");
-    L.tabla([[`<b>Umbral aeróbico · VT1</b>`, `<b>${r.vt1.fc} lpm</b>`, `~${kmh(r.vt1.velocidad)} km/h`, "Hasta aquí puedes platicar y sostener el esfuerzo por horas. Es el límite de tu entrenamiento \"fácil\"."], [`<b>Umbral anaeróbico · VT2</b>`, `<b>${r.vt2.fc} lpm</b>`, `~${kmh(r.vt2.velocidad)} km/h`, "Por encima, el ácido láctico se acumula más rápido de lo que lo eliminas y solo aguantas unos minutos."]], [140, 62, 62, ANCHO - 264]);
+    L.tabla([[`<b>Umbral aeróbico · UV1</b>`, `<b>${r.vt1.fc} lpm</b>`, `~${kmh(r.vt1.velocidad)} km/h`, "Hasta aquí puedes platicar y sostener el esfuerzo por horas. Es el límite de tu entrenamiento \"fácil\"."], [`<b>Umbral anaeróbico · UV2</b>`, `<b>${r.vt2.fc} lpm</b>`, `~${kmh(r.vt2.velocidad)} km/h`, "Por encima, el ácido láctico se acumula más rápido de lo que lo eliminas y solo aguantas unos minutos."]], [140, 62, 62, ANCHO - 264]);
     L.h2("Recomendaciones para ti"); for (const x of recomendaciones(r)) L.parrafo(x, { bullet: "•", after: 4 });
 
     L.nueva(); L.kick("TU PRUEBA"); L.h1("Así respondió tu cuerpo");
-    L.parrafo("Cada franja es una etapa de la prueba; el número arriba es la velocidad (km/h). Arriba ves cómo subió tu consumo de oxígeno hasta su punto más alto; abajo, tu frecuencia cardiaca atravesando tus zonas.");
+    L.parrafo("Cada línea vertical marca un cambio de etapa y el número de arriba es la velocidad (km/h); el reposo inicial y la recuperación van sombreados. Arriba ves cómo subió tu consumo de oxígeno hasta su punto más alto; abajo, tu frecuencia cardiaca atravesando tus zonas.");
     graficaPrueba(L, r, L.y + 4, 330);
     L.h2("Cómo leer tu resultado");
-    const notas = [NOTA_ALTITUD, `Tu ${r.etiquetaVo2} se calculó como el promedio más alto de 30 segundos, con el método de nuestro especialista en fisiología, validado en laboratorio.`, "Tu próxima prueba: en 8 a 12 semanas. Llega descansado, 2 a 3 horas después de comer y con ropa para correr."];
+    const notas = [NOTA_ALTITUD, `Tu ${r.etiquetaVo2} se calculó como el promedio más alto de 30 segundos, con el método de nuestro especialista en fisiología, validado en laboratorio.`, "Tu evaluador y tu entrenador te dirán cuándo conviene repetir la prueba."];
     if (!r.maxima) notas.unshift("Esta prueba no alcanzó criterios de esfuerzo máximo, por eso se reporta como VO₂ pico. Tu VO₂max real probablemente es mayor.");
     for (const n of notas) L.parrafo(n, { bullet: "•", after: 4 });
     L.y += 8; L.pc(AVISO);
@@ -459,9 +536,9 @@
       ["Peso", `${f1(r.peso)} kg (${r.pesoFuente})`, "Duración corriendo", `${f1(dur)} min`],
       [`${r.etiquetaVo2} recalculado`, `<b>${f1(r.vo2max)}</b> mL/kg/min · ${f2(r.vo2maxAbs)} L/min`, "VO₂max de la app", `${f1(r.vo2maxApp)} mL/kg/min`],
       ["Percentil FRIEND", r.percentil != null ? `${Math.round(r.percentil)} · ${r.categoria}` : "—", "Calidad de los datos", `<b>${r.calidad}</b>`],
-      ["FC reposo / máx", `${r.fcReposo} / ${r.fcMax} lpm`, "RER pico (30 s)", f2(r.rerMax)],
-      ["VT1", `${r.vt1.fc} lpm · ${kmh(r.vt1.velocidad)} km/h · ${f0(r.vt1.pctFcmax)} % FCmáx · ${f0(r.vt1.pctVo2max)} % VO₂max (${r.vt1.metodo})`, "Costo O₂ al correr", r.costoPromedio ? `${f0(r.costoPromedio)} mL/kg/km` : "—"],
-      ["VT2", `${r.vt2.fc} lpm · ${kmh(r.vt2.velocidad)} km/h · ${f0(r.vt2.pctFcmax)} % FCmáx · ${f0(r.vt2.pctVo2max)} % VO₂max (${r.vt2.metodo})`, "Velocidad máxima", `${kmh(r.velMax)} km/h`],
+      ["FC reposo / máx", `${r.fcReposo} / ${r.fcMax} lpm`, "RER pico (informativo)", f2(r.rerMax)],
+      ["UV1", `${r.vt1.fc} lpm · ${kmh(r.vt1.velocidad)} km/h · ${f0(r.vt1.pctFcmax)} % FCmáx · ${f0(r.vt1.pctVo2max)} % VO₂max (${r.vt1.metodo})`, "Costo O₂ al correr", r.costoPromedio ? `${f0(r.costoPromedio)} mL/kg/km` : "—"],
+      ["UV2", `${r.vt2.fc} lpm · ${kmh(r.vt2.velocidad)} km/h · ${f0(r.vt2.pctFcmax)} % FCmáx · ${f0(r.vt2.pctVo2max)} % VO₂max (${r.vt2.metodo})`, "Velocidad máxima", `${kmh(r.velMax)} km/h`],
     ].map(([a, b, c, d]) => [{ t: a, f: "s", color: C.tinta2 }, b, { t: c, f: "s", color: C.tinta2 }, d]);
     L.tabla(datos, [88, 210, 92, ANCHO - 390], { pad: 3 });
     L.y += 3; L.pc(`Archivo: ${r.archivo}`);
@@ -471,18 +548,22 @@
     L.h3("Criterios de esfuerzo máximo");
     L.tabla(r.criteriosMax.map(([n, ok, det]) => [{ icono: ok ? "ok" : "aviso" }, `<b>${n}</b>`, det]), [22, 170, ANCHO - 192], { pad: 3 });
 
-    L.nueva(); L.kick("VALIDACIÓN DE UMBRALES"); L.h1("Confirma VT1 y VT2 en las gráficas");
-    L.pc("<b>VT1</b>: primer aumento sostenido de VE/VO₂ y de PetO₂ sin que suba VE/VCO₂; cambio de pendiente en el V-slope. <b>VT2</b>: VE/VCO₂ empieza a subir y PetCO₂ empieza a bajar. Las líneas punteadas son la propuesta automática.");
-    graficasUmbrales(L, r, L.y + 4);
-    L.h3("Etapas de la prueba (último minuto de cada etapa)");
-    const et = [["KM/H", "MIN", "FC", "VO₂ mL/kg/min", "RER", "VE/VO₂", "VE/VCO₂", "PetO₂", "PetCO₂", "COSTO mL/kg/km"]];
-    r.etapas.forEach((e, i) => { const m = r.metricasEtapas[i]; et.push([`<b>${kmh(e.velocidad)}</b>`, `${f1((e.inicio - r.inicioEjercicio) / 60)}–${f1((e.fin - r.inicioEjercicio) / 60)}`, f0(e.fcFinal), f1(e.vo2Final), f2(e.rerFinal), f1(m.eqo2), f1(m.eqco2), f1(m.peto2), f1(m.petco2), e.costoO2 ? f0(e.costoO2) : "—"]); });
-    L.tabla(et, [40, 54, 36, 66, 40, 50, 54, 44, 48, ANCHO - 432], { cabecera: true, zebra: true, pad: 2.5, size: 8 });
-    L.y += 6; L.pc("¿Corriges un umbral? Escribe la FC en los campos <b>VT1 validado</b> y <b>VT2 validado</b> de la página del generador, tu nombre en <b>Evaluador</b>, y vuelve a generar: las zonas y los textos se recalculan solos.");
+    L.nueva(); L.kick("DEFINICIÓN DE UMBRALES"); L.h1("Define UV1 y UV2 en las gráficas");
+    L.pc("<b>UV1</b>: nadir de VE/VO₂ sin elevación de VE/VCO₂ y punto de inflexión en el V-slope con elevación de PetO₂; en este equipo la propuesta automática suele ser razonable. <b>UV2</b>: aceleración de VE/VCO₂ y caída de PetCO₂; en este equipo ni los equivalentes ni las PET responden bien, por eso <b>el UV2 se define a mano</b>. Las líneas punteadas verticales son la propuesta" + (r.vt1.metodo === "validado" && r.vt2.metodo === "validado" ? " definida por el personal." : " automática."));
+    graficaVo2Fc(L, r, L.y + 2, 150);
+    graficaEqPet(L, r, L.y + 2, 178);
+    graficasVslope(L, r, L.y + 2, 138);
+    L.nueva(); L.kick("FASES DE LA PRUEBA"); L.h2("Fases y etapas (último minuto de cada una)");
+    const et = [["ETAPA", "TIEMPO", "KM/H", "FC", "VO₂", "VCO₂", "RER", "VE/VO₂", "VE/VCO₂", "PetO₂", "PetCO₂", "COSTO"]];
+    for (const f of r.filas) et.push([`<b>${f.nombre === "Etapa" ? kmh(f.velocidad) + " km/h" : f.nombre}</b>`, `${mmss(f.t0)}–${mmss(f.t1)}`, f.velocidad > 0 || f.nombre !== "Base" ? kmh(f.velocidad) : "0", f0(f.fc), f1(f.vo2), f1(f.vco2), f2(f.rer), f1(f.eqo2), f1(f.eqco2), f1(f.peto2), f1(f.petco2), f.costo ? f0(f.costo) : "—"]);
+    L.tabla(et, [66, 62, 30, 28, 34, 36, 32, 40, 44, 36, 40, ANCHO - 448], { cabecera: true, zebra: true, pad: 2.5, size: 7.5 });
+    L.y += 4; L.pc(`VO₂ y VCO₂ en mL/kg/min; COSTO = mL/kg/km. La columna de velocidad del Excel marca 8 km/h desde el segundo 0; aquí la velocidad es 0 hasta el inicio real del calentamiento (${mmss(r.inicioCalentamiento)}${r.inicioCalManual ? ", definido a mano" : ", estimado"}).`);
+    L.y += 2; L.pc("¿Corriges un umbral o el inicio? En la página del generador escribe la FC de <b>UV1</b> y <b>UV2</b> (o márcalos con un clic en la gráfica), tu nombre en <b>Evaluador</b>, y vuelve a generar: las zonas y los textos se recalculan solos.");
 
     if (r.historial) paginaHistorialPersonal(L, r);
 
-    L.nueva(); L.kick("GUION DE ENTREGA"); L.h1("Cómo explicarle su resultado");
+    if (L.y > BOTTOM - 380) L.nueva(); else L.y += 14;
+    L.kick("GUION DE ENTREGA"); L.h1("Cómo explicarle su resultado");
     L.h2("Mensajes clave"); for (const m of mensajesClave(r)) L.parrafo(m, { bullet: "•", after: 4 });
     L.h2("Paso a paso"); L.tabla(guion(r).map(([t, x], i) => [`<b>${i + 1}</b>`, `<b>${t}</b>`, x]), [20, 120, ANCHO - 140]);
     const al = alertas(r); if (al.length) { L.h2("Cuida estos puntos"); for (const a of al) L.parrafo(a, { bullet: "!", after: 4 }); }

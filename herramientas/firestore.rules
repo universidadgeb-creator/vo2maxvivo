@@ -1,0 +1,20 @@
+rules_version = '2';
+// Historial VO2max vivo47. Pégalo en Firebase console → Firestore Database → Reglas → Publicar.
+// Solo las cuentas del personal (correos de esta lista) leen y escriben.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function esPersonal() {
+      return request.auth != null
+        && request.auth.token.email in [
+          "correo1@tudominio.com",
+          "correo2@tudominio.com"
+        ];
+    }
+    match /pruebas/{id} {
+      allow read, write: if esPersonal();
+    }
+    match /{otro=**} {
+      allow read, write: if false;
+    }
+  }
+}

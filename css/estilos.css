@@ -142,3 +142,4 @@ select:focus-visible, input[type=tel]:focus-visible { outline: 2px solid var(--a
 .login { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .login .hint { flex-basis: 100%; margin: 0; }
 .login input { flex: 1 1 180px; }
+.uvsel{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.uvb{padding:8px 12px;font-size:13px;min-height:38px}.uvb.on{outline:2px solid var(--accent,#c8a24a);font-weight:700}.guv{overflow:hidden}

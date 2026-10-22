@@ -118,7 +118,19 @@
     const umbral = reposo + 0.5 * (estable - reposo);
     let inicio = 0;
     for (let i = 0; i < d.length; i++) if (vo2s[i] > umbral && t[i] > 20 && t[i] < finE1) { inicio = t[i] - 20; break; }
-    return [Math.max(inicio, 0), fin];
+    return [Math.max(inicio, 0), fin, inicioCalentamiento(d, sp, t, reposo, estable)];
+  }
+  /** La columna de velocidad del Excel marca 8 km/h desde el segundo 0 (la banda aún no se mueve).
+   *  El calentamiento real empieza antes del primer cambio de velocidad, la misma duración que dura una etapa. */
+  function inicioCalentamiento(d, sp, t, reposo, estable) {
+    const seg = [];
+    for (let i = 0; i < sp.length; i++) { if (!seg.length || seg[seg.length - 1].s !== sp[i]) seg.push({ s: sp[i], t0: t[i], t1: t[i] }); else seg[seg.length - 1].t1 = t[i]; }
+    const largos = seg.filter((g) => g.t1 - g.t0 >= 50);
+    if (largos.length < 2) return 0;
+    const t1 = largos[1].t0, calentando = estable > reposo * 1.8 && estable - reposo > 6;
+    if (!calentando) return t1;
+    const dur = largos.length > 2 ? largos[2].t0 - largos[1].t0 : NaN;
+    return isNum(dur) && dur >= 90 && dur <= 300 ? Math.max(t1 - dur, 30) : Math.max(t1 - 180, 30);
   }
 
   function detectarEtapas(d, inicio, fin, peso) {
@@ -151,6 +163,37 @@
       const s = rollingCenterMedian(b.map((x) => x[c]), 3, 1); b.forEach((x, i) => (x[c + "_s"] = s[i]));
     }
     return b;
+  }
+
+  /** Promedios de 15 s de TODA la grabación (para las gráficas en tiempo absoluto). */
+  function serie15(d) {
+    const bins = new Map();
+    for (const r of d) { if (r.artefacto) continue; const k = Math.floor(r.t / 15); if (!bins.has(k)) bins.set(k, []); bins.get(k).push(r); }
+    const b = [];
+    for (const k of [...bins.keys()].sort((x, y) => x - y)) {
+      const rs = bins.get(k); if (rs.length < 2) continue;
+      const o = { n: rs.length, t: mean(rs.map((r) => r.t)), speed: median(rs.map((r) => r.speed)) };
+      for (const c of ["vo2", "vco2", "ve", "peto2", "petco2", "hr"]) o[c] = mean(rs.map((r) => r[c]));
+      o.eqo2 = o.ve / (o.vo2 / 1000); o.eqco2 = o.ve / (o.vco2 / 1000); o.rer = o.vco2 / o.vo2; b.push(o);
+    }
+    for (const c of ["eqo2", "eqco2", "peto2", "petco2", "vo2", "vco2", "rer"]) { const s = rollingCenterMedian(b.map((x) => x[c]), 3, 1); b.forEach((x, i) => (x[c + "_s"] = s[i])); }
+    return b;
+  }
+  /** Tabla de fases como la del experto: Base (0 km/h), Calentamiento, etapas y Recuperación, con tiempos absolutos. */
+  function filasFases(d, res, peso) {
+    const win = (t0, t1) => d.filter((r) => r.t >= Math.max(t0, t1 - 60) && r.t <= t1 && !r.artefacto);
+    const fila = (nombre, t0, t1, v, extra) => {
+      const w = win(t0, t1); if (w.length < 3) return null;
+      const ve = mean(w.map((r) => r.ve));
+      return Object.assign({ nombre, t0, t1, velocidad: v, fc: mean(w.map((r) => r.hr)), vo2: mean(w.map((r) => r.vo2)) / peso, vco2: mean(w.map((r) => r.vco2)) / peso, rer: mean(w.map((r) => r.vco2)) / mean(w.map((r) => r.vo2)),
+        eqo2: ve / (mean(w.map((r) => r.vo2)) / 1000), eqco2: ve / (mean(w.map((r) => r.vco2)) / 1000), peto2: mean(w.map((r) => r.peto2)), petco2: mean(w.map((r) => r.petco2)) }, extra || {});
+    };
+    const out = [], ic = res.inicioCalentamiento;
+    if (ic > 20) out.push(fila("Base", 0, ic, 0));
+    res.etapas.forEach((e, i) => out.push(fila(i === 0 && e.velocidad < (res.etapas[1] ? res.etapas[1].velocidad : Infinity) ? "Calentamiento" : "Etapa", e.inicio, e.fin, e.velocidad, { costo: e.costoO2 })));
+    const rec = d.filter((r) => r.t > res.finEjercicio);
+    if (rec.length > 10 && rec[rec.length - 1].t - res.finEjercicio > 30) out.push(fila("Recuperación", res.finEjercicio, rec[rec.length - 1].t, median(rec.map((r) => r.speed))));
+    return out.filter(Boolean);
   }
 
   function dosRectas(x, y, lo, hi, minPts = 4) {
@@ -203,6 +246,9 @@
     const w = b.filter((r) => r.t >= t - 15 && r.t <= t + 15), fc = pyRound(mean(w.map((r) => r.hr))), vo2 = mean(w.map((r) => r.vo2)) / peso;
     return { tiempo: t, fc, velocidad: median(w.map((r) => r.speed)), vo2, pctFcmax: 100 * fc / fcmax, pctVo2max: 100 * vo2 / vo2max, metodo };
   }
+  function umbralPorTiempo(b, t, fcmax, vo2max, peso) {
+    const lo = b[0].t, hi = b[b.length - 1].t; return umbralEn(b, Math.min(Math.max(t, lo), hi), fcmax, vo2max, peso, "validado");
+  }
   function umbralPorFc(b, fc, fcmax, vo2max, peso) {
     const hrs = b.map((r, i) => (i ? (r.hr + b[i - 1].hr) / 2 : r.hr));
     let idx = hrs.findIndex((h) => h >= fc); const t = idx >= 0 ? b[idx].t : b[b.length - 1].t;
@@ -217,7 +263,7 @@
   }
   function calcularZonas(vt1, vt2, fcmax, fcrep, etapas) {
     const medio = pyRound((vt1 + vt2) / 2);
-    const lims = [[Math.max(fcrep + 10, pyRound(vt1 * 0.8)), vt1], [vt1, medio], [medio, vt2 - 4], [vt2 - 4, vt2 + 4], [vt2 + 4, fcmax]];
+    const lims = [[Math.max(fcrep + 10, pyRound(vt1 * 0.8)), vt1], [vt1, medio], [medio, vt2 - 4], [vt2 - 4, Math.min(vt2 + 4, fcmax)], [Math.min(vt2 + 4, fcmax), fcmax]];
     return ZONAS.map(([codigo, nombre, sensacion], i) => ({ codigo, nombre, sensacion, fcMin: Math.trunc(lims[i][0]), fcMax: Math.trunc(lims[i][1]), velMin: velocidadParaFc(etapas, lims[i][0]), velMax: velocidadParaFc(etapas, lims[i][1]) }));
   }
 
@@ -227,13 +273,16 @@
     const V = (nombre, estado, detalle) => res.validaciones.push({ nombre, estado, detalle });
     const ex = d.filter((r) => r.t >= res.inicioEjercicio && r.t <= res.finEjercicio), s = res.socio;
     if (!s.edad) V("Datos del socio", "falla", "Falta la edad (y el sexo) del socio: sin ellos no hay percentil ni comparación por edad en el reporte.");
-    const crit = [["RER pico ≥ 1.10", res.rerMax >= 1.10, "RER pico " + f2(res.rerMax)], ["Meseta de VO₂ al final", res.meseta, res.meseta ? "El VO₂ dejó de subir en el último minuto" : "El VO₂ seguía subiendo al detenerse"]];
+    // Criterios de esfuerzo máximo SIN RER: el equipo varía mucho en CO₂ y da RER falsos a frecuencias respiratorias altas.
+    const crit = [["Meseta de VO₂ al final", res.meseta, res.meseta ? "El VO₂ dejó de subir en el último minuto" : "El VO₂ seguía subiendo al detenerse"]];
     let pct = null;
-    if (s.edad) { const pred = 208 - 0.7 * s.edad; pct = 100 * res.fcMax / pred; crit.push(["FC máx ≥ 95 % de la esperada", pct >= 95, `${res.fcMax} lpm = ${f0(pct)} % de ${f0(pred)} (fórmula de Tanaka)`]); }
+    if (s.edad) { const pred = 208 - 0.7 * s.edad; pct = 100 * res.fcMax / pred; crit.push(["FC máx ≥ 85 % de la esperada", pct >= 85, `${res.fcMax} lpm = ${f0(pct)} % de ${f0(pred)} (fórmula de Tanaka)`]); }
     res.criteriosMax = crit;
-    if (res.meseta && res.rerMax >= 1.10) { res.maxima = true; V("Esfuerzo máximo", "ok", "Prueba máxima: hubo meseta de VO₂ y RER ≥ 1.10."); }
-    else if (res.rerMax >= 1.15 && (pct == null || pct >= 95)) { res.maxima = true; V("Esfuerzo máximo", "aviso", "Probablemente máxima: RER alto y FC cerca de la máxima esperada, pero sin meseta clara de VO₂."); }
-    else { res.maxima = false; V("Esfuerzo máximo", "falla", "No se confirma esfuerzo máximo: se reporta como VO₂pico. El valor real probablemente es mayor; conviene repetir la prueba."); }
+    const fcOk = pct == null ? null : pct >= 85;
+    if (res.meseta && fcOk !== false) { res.maxima = true; V("Esfuerzo máximo", "ok", fcOk ? `Prueba máxima: hubo meseta de VO₂ y la FC llegó al ${f0(pct)} % de la esperada.` : "Hubo meseta de VO₂ (falta la edad para revisar la FC)."); }
+    else if (fcOk) { res.maxima = true; V("Esfuerzo máximo", "aviso", `Probablemente máxima: la FC llegó al ${f0(pct)} % de la esperada, pero el VO₂ seguía subiendo al detenerse.`); }
+    else if (res.meseta) { res.maxima = true; V("Esfuerzo máximo", "aviso", `Probablemente máxima: hubo meseta de VO₂, pero la FC solo llegó al ${f0(pct)} % de la esperada (menos de 85 %). Revisa la banda de pecho o si el socio usa algún medicamento que baje la FC.`); }
+    else { res.maxima = false; V("Esfuerzo máximo", "falla", "No se confirma esfuerzo máximo (ni meseta de VO₂ ni FC ≥ 85 % de la esperada): se reporta como VO₂pico. El valor real probablemente es mayor; conviene repetir la prueba."); }
     const dur = (res.finEjercicio - res.inicioEjercicio) / 60;
     if (dur >= 8 && dur <= 18) V("Duración del ejercicio", "ok", `${f1(dur)} min corriendo (ideal 8–18 min).`);
     else V("Duración del ejercicio", "aviso", `${f1(dur)} min corriendo. Lo ideal es 8–18 min: en pruebas muy largas el cansancio acumulado puede bajar el VO₂max; en muy cortas no da tiempo de llegar al máximo.`);
@@ -260,8 +309,12 @@
     else V("Peso", "ok", `${f1(res.peso)} kg (${res.pesoFuente}).`);
     if (d.some((r) => isNum(r.incline) && Math.abs(r.incline) > 0)) V("Inclinación", "aviso", "La prueba registra inclinación; el protocolo estándar es 0 %.");
     const v1 = res.vt1, v2 = res.vt2, rango = v1.pctFcmax >= 55 && v1.pctFcmax <= 85 && v2.pctFcmax >= 78 && v2.pctFcmax <= 97 && v2.fc - v1.fc >= 8;
-    if (v1.metodo === "validado" && v2.metodo === "validado") V("Umbrales ventilatorios", rango ? "ok" : "aviso", `Validados por el personal: VT1 ${v1.fc} lpm, VT2 ${v2.fc} lpm.`);
-    else V("Umbrales ventilatorios", "aviso", `Detectados automáticamente (VT1 ${v1.fc} lpm, ${f0(v1.pctFcmax)} % FCmáx; VT2 ${v2.fc} lpm, ${f0(v2.pctFcmax)} % FCmáx). Un evaluador debe confirmarlos en las gráficas antes de entregar.` + (rango ? "" : " Están fuera del rango típico."));
+    if (v1.metodo === "validado" && v2.metodo === "validado") V("Umbrales ventilatorios", rango ? "ok" : "aviso", `Definidos por el personal: UV1 ${v1.fc} lpm, UV2 ${v2.fc} lpm.` + (rango ? "" : " Están fuera del rango típico; confirma que sean los correctos."));
+    else {
+      const p1 = v1.metodo === "validado" ? `UV1 ${v1.fc} lpm (definido por el personal)` : `UV1 ${v1.fc} lpm (${f0(v1.pctFcmax)} % FCmáx; propuesta automática, suele ser razonable: confírmala)`;
+      const p2 = v2.metodo === "validado" ? `UV2 ${v2.fc} lpm (definido por el personal)` : `UV2 ${v2.fc} lpm (${f0(v2.pctFcmax)} % FCmáx; propuesta automática, NO es confiable con este equipo porque los equivalentes y la PetCO₂ no responden bien: defínela a mano en las gráficas)`;
+      V("Umbrales ventilatorios", "aviso", `${p1}. ${p2}.` + (rango ? "" : " Están fuera del rango típico."));
+    }
     const r = res.vo2maxApp ? res.vo2max / res.vo2maxApp : NaN;
     if (r >= 1 && r <= 1.3) V("Diferencia con la app", "ok", `App ${f1(res.vo2maxApp)} vs recalculado ${f1(res.vo2max)} (+${f0(100 * (r - 1))} %). Diferencia esperada: la app resta demasiado espacio muerto.`);
     else V("Diferencia con la app", "aviso", `App ${f1(res.vo2maxApp)} vs recalculado ${f1(res.vo2max)} (${(r >= 1 ? "+" : "") + f0(100 * (r - 1))} %). Diferencia fuera de lo habitual (0 a +30 %); revisar los datos.`);
@@ -279,9 +332,12 @@
     if (!socio.nombre) socio.nombre = info.nombre;
     const peso = socio.peso ? socio.peso : round1(pesoExcel), pesoFuente = socio.peso ? "registro del socio" : "perfil de la app";
     recalcular(d, peso);
-    const [inicio, fin] = detectarFases(d);
-    for (const r of d) if (r.t < inicio) r.speed = 0;
-    const etapas = detectarEtapas(d, inicio, fin, peso);
+    const [inicio0, fin, inicioCal0] = detectarFases(d);
+    const manualCal = isNum(socio.inicioCal) && socio.inicioCal > 0 ? socio.inicioCal : null;
+    const inicioCal = manualCal != null ? manualCal : Math.min(inicioCal0, inicio0 > 0 ? inicio0 : inicioCal0);
+    const inicio = Math.max(inicio0, inicioCal);
+    for (const r of d) if (r.t < inicioCal) r.speed = 0;
+    const etapas = detectarEtapas(d, inicioCal, fin, peso);
     if (etapas.length < 2) throw new Error("No se reconocen las etapas de la prueba (¿se interrumpió muy pronto?).");
 
     const ok = d.filter((r) => !r.artefacto), tt = ok.map((r) => r.t);
@@ -293,7 +349,7 @@
 
     const hrv = d.map((r) => (r.hr > 30 ? r.hr : NaN));
     const fcMax = pyRound(max(rollingCenterMedian(hrv, 5, 3)));
-    const fcRep = inicio > 30 ? pyRound(median(hrv.filter((_, i) => d[i].t < Math.max(inicio, 30)))) : Math.trunc(median(hrv.slice(0, 20)));
+    const fcRep = inicioCal > 30 ? pyRound(median(hrv.filter((_, i) => d[i].t < Math.max(inicioCal, 30)))) : Math.trunc(median(hrv.slice(0, 20)));
     const mVco2 = mediaMovilTiempo(tt, ok.map((r) => r.vco2), 30), mVo2 = mediaMovilTiempo(tt, ok.map((r) => r.vo2), 30);
     const rerMax = max(tt.map((t, i) => (t >= inicio + 60 && t <= fin + 30 ? mVco2[i] / mVo2[i] : NaN)));
     const velMax = max(d.filter((r) => r.t >= inicio && r.t <= fin).map((r) => r.speed));
@@ -306,14 +362,14 @@
     const b = promedios15s(d, inicio, fin);
     let [t1, t2] = etapas.length >= 4 ? detectarUmbralesEtapas(d, etapas) : [null, null];
     if (t1 == null) [t1, t2] = detectarUmbralesBins(b);
-    const vt1 = socio.vt1Fc ? umbralPorFc(b, socio.vt1Fc, fcMax, vo2max, peso) : umbralEn(b, t1, fcMax, vo2max, peso, "automático");
-    const vt2 = socio.vt2Fc ? umbralPorFc(b, socio.vt2Fc, fcMax, vo2max, peso) : umbralEn(b, t2, fcMax, vo2max, peso, "automático");
+    const manual = (T, fc, auto) => isNum(T) ? umbralPorTiempo(b, T, fcMax, vo2max, peso) : fc ? umbralPorFc(b, fc, fcMax, vo2max, peso) : umbralEn(b, auto, fcMax, vo2max, peso, "automático");
+    const vt1 = manual(socio.vt1T, socio.vt1Fc, t1), vt2 = manual(socio.vt2T, socio.vt2Fc, t2);
 
     let percentil = null, cat = "Sin referencia (falta edad)";
     if (socio.edad) { percentil = percentilFriend(vo2max, socio.edad, socio.sexo); cat = categoria(percentil); }
     const costos = etapas.filter((e) => e.costoO2 && e.velocidad >= 9.5 && e.velocidad <= 14.5).map((e) => e.costoO2);
     const res = {
-      socio, fecha: info.fecha, archivo: nombreArchivo, peso, pesoFuente, datos: d, bins: b, inicioEjercicio: inicio, finEjercicio: fin, etapas,
+      socio, fecha: info.fecha, archivo: nombreArchivo, peso, pesoFuente, datos: d, bins: b, inicioEjercicio: inicio, inicioCalentamiento: inicioCal, inicioCalManual: manualCal != null, tFinal: d[d.length - 1].t, finEjercicio: fin, etapas,
       vo2max, vo2maxTiempo: tPico, vo2maxApp: appMax, vo2maxAbs: vo2maxAbs / 1000, fcMax, fcReposo: fcRep, rerMax, velMax, meseta, maxima: true,
       percentil, categoria: cat, vt1, vt2, zonas: calcularZonas(vt1.fc, vt2.fc, fcMax, fcRep, etapas), validaciones: [], criteriosMax: [],
       costoPromedio: costos.length ? mean(costos) : null, calidad: "Buena",
@@ -321,9 +377,12 @@
     validar(res, d, pesoExcel);
     res.etiquetaVo2 = res.maxima ? "VO₂max" : "VO₂pico";
     res.metricasEtapas = etapas.map((e) => metricasEtapa(d, e));
+    const mV = mediaMovilTiempo(tt, ok.map((r) => r.vco2), 30); for (const r of d) r.vco2kg30s = NaN; ok.forEach((r, i) => (r.vco2kg30s = mV[i] / peso));
+    res.serie = serie15(d);
+    res.filas = filasFases(d, res, peso);
     return res;
   }
 
-  const api = { analizar, infoDesdeNombre, tablaFriend, percentilFriend, categoria, esMujer, mediaMovilTiempo };
+  const api = { analizar, serie15, infoDesdeNombre, tablaFriend, percentilFriend, categoria, esMujer, mediaMovilTiempo };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.VO2 = api;
 })(typeof window !== "undefined" ? window : globalThis);

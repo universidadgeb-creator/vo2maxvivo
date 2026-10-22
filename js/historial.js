@@ -1,5 +1,5 @@
 /* Historial de pruebas por socio (ligado a su teléfono) y comparación entre pruebas.
- * Los registros viven en Supabase (con inicio de sesión del personal); sin Supabase configurado, en localStorage. */
+ * Los registros viven en Firebase (con inicio de sesión del personal); sin Firebase configurado, en localStorage. */
 (function (root) {
   "use strict";
   const CLAVE = "vivo47-historial-v1";
@@ -29,8 +29,8 @@
   }
 
   // ---------- almacenamiento ----------
-  // Copia en memoria (cache). Si hay Supabase configurado, el historial vive solo allí (tabla "pruebas", con inicio de
-  // sesión del personal) y no se guarda nada en el navegador. Sin Supabase, se usa localStorage como respaldo local.
+  // Copia en memoria (cache). Si hay Firebase configurado, el historial vive solo allí (colección "pruebas", con inicio de
+  // sesión del personal) y no se guarda nada en el navegador. Sin Firebase, se usa localStorage como respaldo local.
   const idDe = (rec) => `${rec.telefono}|${rec.fecha}`;
   const idDoc = (rec) => `${rec.telefono}_${rec.fecha}`.replace(/[^A-Za-z0-9_\-.~:@+]/g, "-");
   const orden = (a) => a.sort((x, y) => x.telefono.localeCompare(y.telefono) || x.fecha.localeCompare(y.fecha));
@@ -54,7 +54,7 @@
       vt1: umb(r.vt1), vt2: umb(r.vt2), guardado: new Date().toISOString(),
     };
   }
-  /** Guarda (o reemplaza, si se re-analiza la misma prueba). Devuelve una promesa que se resuelve al confirmarse en Supabase. */
+  /** Guarda (o reemplaza, si se re-analiza la misma prueba). Devuelve una promesa que se resuelve al confirmarse en Firebase. */
   function guardar(rec) {
     if (nube && !back) return Promise.reject(sinSesion());
     cache = orden(leer().filter((x) => idDe(x) !== idDe(rec)).concat([rec])); espejo();
@@ -66,14 +66,16 @@
     cache = leer().filter((x) => !(x.telefono === tel && x.fecha === fecha)); espejo();
     return rec ? escrituras(() => back.borrar(rec)) : Promise.resolve();
   }
-  /** Conecta Supabase (cliente ya con sesión iniciada): carga el historial y sube lo que solo estaba en este navegador. */
-  async function conectarSupabase(sb, alFallar) {
+  /** Conecta Firebase (Firestore, con sesión ya iniciada): carga el historial y sube lo que solo estaba en este navegador. */
+  async function conectarFirebase(db, alFallar) {
     avisar = alFallar || (() => {}); nube = true;
-    const tabla = () => sb.from("pruebas");
+    const col = db.collection("pruebas");
     const b = {
-      async listar() { const { data, error } = await tabla().select("datos").order("fecha"); if (error) throw error; return data.map((d) => d.datos).filter(valido); },
-      async guardar(recs) { const { error } = await tabla().upsert(recs.map((x) => ({ id: idDoc(x), telefono: x.telefono, fecha: x.fecha, datos: x }))); if (error) throw error; },
-      async borrar(rec) { const { error } = await tabla().delete().eq("id", idDoc(rec)); if (error) throw error; },
+      async listar() { const sn = await col.get(); return sn.docs.map((d) => d.data()).filter(valido); },
+      async guardar(recs) {
+        for (let i = 0; i < recs.length; i += 400) { const lote = db.batch(); recs.slice(i, i + 400).forEach((x) => lote.set(col.doc(idDoc(x)), x)); await lote.commit(); }
+      },
+      async borrar(rec) { await col.doc(idDoc(rec)).delete(); },
     };
     const remotos = await b.listar(), ids = new Set(remotos.map(idDe));
     const solosLocal = leerLocal().filter((x) => !ids.has(idDe(x)));
@@ -85,7 +87,7 @@
   /** Al cerrar sesión se vacía la copia en memoria. */
   function desconectar() { back = null; cache = []; }
   const conectado = () => !!back;
-  /** Activa el modo nube (hay Supabase configurado) aunque aún no haya sesión: así no se escribe nada en el navegador. */
+  /** Activa el modo nube (hay Firebase configurado) aunque aún no haya sesión: así no se escribe nada en el navegador. */
   function modoNube() { nube = true; if (!back) cache = []; }
 
   function deTelefono(tel) { return leer().filter((x) => x.telefono === tel).sort((x, y) => x.fecha.localeCompare(y.fecha)); }
@@ -111,16 +113,16 @@
   const METRICAS = [
     { k: "vo2max", nombre: "VO₂max", uni: "mL/kg/min", dec: 1, mejor: +1, umbral: (a) => 0.03 * a, val: (x) => x.vo2max },
     { k: "vo2maxAbs", nombre: "VO₂ absoluto", uni: "L/min", dec: 2, mejor: +1, umbral: (a) => 0.03 * a, val: (x) => x.vo2maxAbs },
-    { k: "vt2vel", nombre: "Velocidad en VT2", uni: "km/h", dec: 1, mejor: +1, umbral: () => 0.5, val: (x) => x.vt2 && x.vt2.velocidad },
-    { k: "vt2pct", nombre: "VT2 (% del VO₂max)", uni: "%", dec: 0, mejor: +1, umbral: () => 3, val: (x) => x.vt2 && x.vt2.pctVo2max },
-    { k: "vt1vel", nombre: "Velocidad en VT1", uni: "km/h", dec: 1, mejor: +1, umbral: () => 0.5, val: (x) => x.vt1 && x.vt1.velocidad },
-    { k: "vt1pct", nombre: "VT1 (% del VO₂max)", uni: "%", dec: 0, mejor: +1, umbral: () => 3, val: (x) => x.vt1 && x.vt1.pctVo2max },
+    { k: "vt2vel", nombre: "Velocidad en UV2", uni: "km/h", dec: 1, mejor: +1, umbral: () => 0.5, val: (x) => x.vt2 && x.vt2.velocidad },
+    { k: "vt2pct", nombre: "UV2 (% del VO₂max)", uni: "%", dec: 0, mejor: +1, umbral: () => 3, val: (x) => x.vt2 && x.vt2.pctVo2max },
+    { k: "vt1vel", nombre: "Velocidad en UV1", uni: "km/h", dec: 1, mejor: +1, umbral: () => 0.5, val: (x) => x.vt1 && x.vt1.velocidad },
+    { k: "vt1pct", nombre: "UV1 (% del VO₂max)", uni: "%", dec: 0, mejor: +1, umbral: () => 3, val: (x) => x.vt1 && x.vt1.pctVo2max },
     { k: "velMax", nombre: "Velocidad máxima", uni: "km/h", dec: 1, mejor: +1, umbral: () => 0.5, val: (x) => x.velMax },
     { k: "duracion", nombre: "Tiempo corriendo", uni: "min", dec: 1, mejor: +1, umbral: () => 0.5, val: (x) => x.duracion },
     { k: "costo", nombre: "Costo de O₂ al correr", uni: "mL/kg/km", dec: 0, mejor: -1, umbral: (a) => 0.03 * a, val: (x) => x.costo },
     { k: "fcReposo", nombre: "FC en reposo", uni: "lpm", dec: 0, mejor: -1, umbral: () => 4, val: (x) => x.fcReposo },
-    { k: "vt1fc", nombre: "FC en VT1", uni: "lpm", dec: 0, mejor: 0, umbral: () => 4, val: (x) => x.vt1 && x.vt1.fc },
-    { k: "vt2fc", nombre: "FC en VT2", uni: "lpm", dec: 0, mejor: 0, umbral: () => 4, val: (x) => x.vt2 && x.vt2.fc },
+    { k: "vt1fc", nombre: "FC en UV1", uni: "lpm", dec: 0, mejor: 0, umbral: () => 4, val: (x) => x.vt1 && x.vt1.fc },
+    { k: "vt2fc", nombre: "FC en UV2", uni: "lpm", dec: 0, mejor: 0, umbral: () => 4, val: (x) => x.vt2 && x.vt2.fc },
     { k: "fcMax", nombre: "FC máxima", uni: "lpm", dec: 0, mejor: 0, umbral: () => 4, val: (x) => x.fcMax },
     { k: "peso", nombre: "Peso", uni: "kg", dec: 1, mejor: 0, umbral: () => 1, val: (x) => x.peso },
   ];
@@ -162,21 +164,21 @@
         ? { tipo: "Composición corporal", socio: `Tu VO₂max subió <b>${it.vo2max.texto}</b> sobre todo porque bajaste ${fmt(Math.abs(it.peso.delta), 1)} kg: cada kilo ahora recibe más oxígeno.`, personal: `VO₂max relativo ${it.vo2max.texto} explicado por el peso (${it.peso.texto}); el VO₂ absoluto no cambió (${it.vo2maxAbs.texto}).` }
         : { tipo: "Capacidad aeróbica máxima", socio: `Tu motor creció: tu VO₂max subió <b>${it.vo2max.texto}</b>. Tu cuerpo ya puede usar más oxígeno en el esfuerzo máximo.`, personal: `VO₂max ${it.vo2max.texto}; VO₂ absoluto ${it.vo2maxAbs.texto}. Mejora central (cardiaca) y/o periférica.` });
     } else if (est("vo2max") === "baja") {
-      oportunidades.push({ tipo: "Capacidad aeróbica máxima", socio: `Tu VO₂max bajó <b>${it.vo2max.texto}</b>. Suele pasar con semanas de menos constancia, poco descanso o un mal día; vale la pena revisar cómo han ido tus entrenamientos.`, personal: `VO₂max ${it.vo2max.texto}. Preguntar por constancia, enfermedad, sueño y carga reciente antes de concluir. Sugerir 1 sesión semanal de Z5 (series de 2 a 4 min) cuando la base esté estable.` });
+      oportunidades.push({ tipo: "Capacidad aeróbica máxima", socio: `Tu VO₂max bajó <b>${it.vo2max.texto}</b>. Suele pasar con semanas de menos constancia, poco descanso o un mal día; vale la pena revisar cómo han ido tus entrenamientos.`, personal: `VO₂max ${it.vo2max.texto}. Preguntar por constancia, enfermedad, sueño y carga reciente antes de concluir. El ajuste del plan lo define el entrenador.` });
     }
     if (est("vt2vel") === "mejora" || est("vt2pct") === "mejora") {
       const t = est("vt2vel") === "mejora" ? `ahora llega a <b>${fmt(it.vt2vel.ahora, 1)} km/h</b> (${it.vt2vel.texto})` : `ahora está al <b>${fmt(it.vt2pct.ahora, 0)} %</b> de tu capacidad (${it.vt2pct.texto})`;
-      mejoras.push({ tipo: "Umbral anaeróbico", socio: `Tu umbral anaeróbico (VT2) ${t}: puedes sostener ritmos más rápidos antes de que el cansancio se dispare.`, personal: `VT2: velocidad ${it.vt2vel.texto || "—"}, % VO₂max ${it.vt2pct.texto || "—"}. El trabajo de Z4 está dando resultado.` });
+      mejoras.push({ tipo: "Umbral anaeróbico", socio: `Tu umbral anaeróbico (UV2) ${t}: puedes sostener ritmos más rápidos antes de que el cansancio se dispare.`, personal: `UV2: velocidad ${it.vt2vel.texto || "—"}, % VO₂max ${it.vt2pct.texto || "—"}. El trabajo de Z4 está dando resultado.` });
     } else if (est("vt2vel") === "baja" || est("vt2pct") === "baja") {
-      oportunidades.push({ tipo: "Umbral anaeróbico", socio: `Tu umbral anaeróbico (VT2) llega un poco antes que en tu prueba anterior. Intervalos en zona 4 de 8 a 15 minutos te ayudarán a subirlo.`, personal: `VT2 bajó (velocidad ${it.vt2vel.texto || "—"}, % VO₂max ${it.vt2pct.texto || "—"}). Confirmar VT2 en las gráficas; si se sostiene, priorizar Z4.` });
+      oportunidades.push({ tipo: "Umbral anaeróbico", socio: `Tu umbral anaeróbico (UV2) llega un poco antes que en tu prueba anterior. Tu entrenador te dirá cómo trabajarlo.`, personal: `UV2 bajó (velocidad ${it.vt2vel.texto || "—"}, % VO₂max ${it.vt2pct.texto || "—"}). Confirmar UV2 en las gráficas antes de concluir.` });
     }
     if (est("vt1vel") === "mejora" || est("vt1pct") === "mejora") {
-      mejoras.push({ tipo: "Base aeróbica", socio: `Tu base aeróbica mejoró: tu umbral aeróbico (VT1) ${est("vt1vel") === "mejora" ? `ahora está en <b>${fmt(it.vt1vel.ahora, 1)} km/h</b> (${it.vt1vel.texto})` : `subió a <b>${fmt(it.vt1pct.ahora, 0)} %</b> de tu capacidad`}. Corres más rápido con el mismo esfuerzo cómodo.`, personal: `VT1: velocidad ${it.vt1vel.texto || "—"}, % VO₂max ${it.vt1pct.texto || "—"}. El volumen en Z2 está funcionando.` });
+      mejoras.push({ tipo: "Base aeróbica", socio: `Tu base aeróbica mejoró: tu umbral aeróbico (UV1) ${est("vt1vel") === "mejora" ? `ahora está en <b>${fmt(it.vt1vel.ahora, 1)} km/h</b> (${it.vt1vel.texto})` : `subió a <b>${fmt(it.vt1pct.ahora, 0)} %</b> de tu capacidad`}. Corres más rápido con el mismo esfuerzo cómodo.`, personal: `UV1: velocidad ${it.vt1vel.texto || "—"}, % VO₂max ${it.vt1pct.texto || "—"}. El volumen en Z2 está funcionando.` });
     } else if (est("vt1vel") === "baja" || est("vt1pct") === "baja") {
-      oportunidades.push({ tipo: "Base aeróbica", socio: "Tu umbral aeróbico (VT1) llegó antes que la vez pasada. Más tiempo en zona 2, a ritmo de plática, es lo que más lo sube.", personal: `VT1 bajó (velocidad ${it.vt1vel.texto || "—"}, % VO₂max ${it.vt1pct.texto || "—"}). Revisar si sus rodajes fáciles se están yendo a Z3; reforzar volumen en Z2.` });
+      oportunidades.push({ tipo: "Base aeróbica", socio: "Tu umbral aeróbico (UV1) llegó antes que la vez pasada. Tu entrenador te dirá cómo trabajarlo.", personal: `UV1 bajó (velocidad ${it.vt1vel.texto || "—"}, % VO₂max ${it.vt1pct.texto || "—"}). Revisar si sus rodajes fáciles se están yendo a Z3; el ajuste del plan lo define el entrenador.` });
     }
     if (est("costo") === "mejora") mejoras.push({ tipo: "Economía de carrera", socio: `Corres más eficiente: gastas <b>${fmt(Math.abs(it.costo.pct), 0)} % menos oxígeno</b> por kilómetro a la misma velocidad.`, personal: `Costo de O₂ ${it.costo.texto}. Mejor economía (técnica, fuerza o adaptación a la banda).` });
-    else if (est("costo") === "baja") oportunidades.push({ tipo: "Economía de carrera", socio: "Gastaste un poco más de oxígeno por kilómetro que la vez pasada. Trabajo de fuerza y técnica de carrera ayudan a correr más eficiente.", personal: `Costo de O₂ ${it.costo.texto}. Puede ser técnica, fatiga o menos adaptación a la banda; sugerir fuerza 2×/semana y drills de técnica.` });
+    else if (est("costo") === "baja") oportunidades.push({ tipo: "Economía de carrera", socio: "Gastaste un poco más de oxígeno por kilómetro que la vez pasada. Tu entrenador te dirá cómo trabajarlo.", personal: `Costo de O₂ ${it.costo.texto}. Puede ser técnica, fatiga o menos adaptación a la banda; el ajuste del plan lo define el entrenador.` });
     if (est("velMax") === "mejora" && !mejoras.some((m) => m.tipo === "Capacidad aeróbica máxima")) mejoras.push({ tipo: "Rendimiento", socio: `Llegaste más lejos en la prueba: tu velocidad máxima subió a <b>${fmt(it.velMax.ahora, 1)} km/h</b>.`, personal: `Velocidad máxima ${it.velMax.texto}, tiempo corriendo ${it.duracion.texto || "—"}.` });
     if (est("fcReposo") === "mejora") mejoras.push({ tipo: "Recuperación", socio: `Tu frecuencia cardiaca en reposo bajó ${fmt(Math.abs(it.fcReposo.delta), 0)} lpm, señal de un corazón más eficiente.`, personal: `FC reposo ${it.fcReposo.texto} (tomar con cautela: depende de nervios y reposo previo).` });
 
@@ -196,7 +198,7 @@
     if (cercanas) notas.push(dv.estado === "estable"
       ? "Entre las dos pruebas pasó muy poco tiempo para que el entrenamiento cambie tu condición, y los resultados salieron consistentes: eso nos da confianza en tus números."
       : "Entre las dos pruebas pasó muy poco tiempo para que el entrenamiento cambie tu condición. La diferencia refleja sobre todo cómo llegaste cada día (descanso, nervios, comida, qué tanto llegaste a tu límite), no un cambio real.");
-    else if (!mejoras.length && !oportunidades.length) notas.push("Tus umbrales y tu eficiencia se mantienen en el mismo lugar. Para volver a progresar, cambia el estímulo: más volumen en zona 2 o una sesión semanal de intervalos.");
+    else if (!mejoras.length && !oportunidades.length) notas.push("Tus umbrales y tu eficiencia se mantienen en el mismo lugar. Tu entrenador definirá si conviene cambiar el estímulo.");
     if (ant.length > 1) notas.push(`Desde tu primera prueba (${fechaCorta(primera.fecha)}) tu ${actual.etiqueta} ${cambioTexto(primera.vo2max, actual.vo2max)}.`);
     if (noMax) notas.push("Una de las dos pruebas no llegó a tu esfuerzo máximo, así que la comparación del VO₂max es aproximada.");
     const socio = { intro, notas, mejoras: cercanas ? [] : mejoras.map((m) => m.socio), oportunidades: cercanas ? [] : oportunidades.map((o) => o.socio) };
@@ -205,15 +207,15 @@
     if (cercanas) personal.cautelas.push(`Solo ${dias} día(s) entre pruebas: tómalo como prueba de reproducibilidad, no de entrenamiento. Diferencias <3 % en VO₂max son variación normal.`);
     if (noMax) personal.cautelas.push("Al menos una prueba fue VO₂pico (sin criterios de máximo): no atribuyas la diferencia de VO₂max al entrenamiento sin repetir.");
     if (calidadDudosa) personal.cautelas.push("Una de las pruebas tiene calidad «Revisar»: revisa sus validaciones antes de presentar la comparación.");
-    if (umbralesAuto) personal.cautelas.push("Alguna prueba tiene umbrales automáticos: valida VT1/VT2 en ambas para que la comparación de umbrales sea confiable.");
+    if (umbralesAuto) personal.cautelas.push("Alguna prueba tiene umbrales automáticos: valida UV1/UV2 en ambas para que la comparación de umbrales sea confiable.");
     if (it.peso.estado === "cambio") personal.cautelas.push(`El peso cambió ${it.peso.texto}: compara también el VO₂ absoluto (${it.vo2maxAbs.texto}) para separar el efecto del peso.`);
 
     const consistentes = dv.estado === "estable";
     const ref = previa.maxima !== actual.maxima ? (actual.maxima ? actual : previa) : (actual.vo2max >= previa.vo2max ? actual : previa);
     const guion = cercanas
       ? (consistentes
-        ? `"Hiciste dos pruebas muy seguidas y salieron consistentes (${fmt(previa.vo2max, 1)} y ${fmt(actual.vo2max, 1)}): eso nos da confianza en tus números. La próxima comparación útil es en 8 a 12 semanas."`
-        : `"Hiciste dos pruebas muy seguidas (${fmt(previa.vo2max, 1)} y ${fmt(actual.vo2max, 1)}). En tan poco tiempo tu condición no cambia: la diferencia viene de cómo llegaste cada día${noMax ? " y de que una de las pruebas no llegó a tu máximo" : ""}. Tomamos como referencia la de ${fmt(ref.vo2max, 1)}${ref.maxima && noMax ? ", que sí fue máxima" : ""}, y la próxima comparación útil es en 8 a 12 semanas."`)
+        ? `"Hiciste dos pruebas muy seguidas y salieron consistentes (${fmt(previa.vo2max, 1)} y ${fmt(actual.vo2max, 1)}): eso nos da confianza en tus números. La fecha de la siguiente prueba la definen el evaluador y el entrenador."`
+        : `"Hiciste dos pruebas muy seguidas (${fmt(previa.vo2max, 1)} y ${fmt(actual.vo2max, 1)}). En tan poco tiempo tu condición no cambia: la diferencia viene de cómo llegaste cada día${noMax ? " y de que una de las pruebas no llegó a tu máximo" : ""}. Tomamos como referencia la de ${fmt(ref.vo2max, 1)}${ref.maxima && noMax ? ", que sí fue máxima" : ""}, y la fecha de la siguiente prueba la definen el evaluador y el entrenador."`)
       : `"Desde tu prueba del ${fechaCorta(previa.fecha)} tu VO₂max ${cambioTexto(previa.vo2max, actual.vo2max)}.` + (mejoras.length ? ` Lo que más mejoró: ${mejoras.map((m) => m.tipo.toLowerCase()).join(", ")}.` : "") + (oportunidades.length ? ` Donde podemos crecer: ${oportunidades.map((o) => o.tipo.toLowerCase()).join(", ")}."` : `"`);
 
     const titularPersonal = cercanas ? "Pruebas muy cercanas (reproducibilidad)" : dv.estado === "mejora" ? (mejoras.length > 1 ? "Mejoró en varios frentes" : "Mejoró su VO₂max")
@@ -228,6 +230,6 @@
     return `${p > 0 ? "subió" : "bajó"} de ${a.toFixed(1)} a ${b.toFixed(1)} (${p > 0 ? "+" : "−"}${Math.abs(p).toFixed(0)} %)`;
   }
 
-  const api = { LADAS, normalizarTelefono, telefonoLegible, resumen, guardar, leer, deTelefono, borrar, socios, exportar, importar, conectarSupabase, desconectar, modoNube, conectado, comparar, compararPar, fechaCorta };
+  const api = { LADAS, normalizarTelefono, telefonoLegible, resumen, guardar, leer, deTelefono, borrar, socios, exportar, importar, conectarFirebase, desconectar, modoNube, conectado, comparar, compararPar, fechaCorta };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.VO2H = api;
 })(typeof window !== "undefined" ? window : globalThis);
