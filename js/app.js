@@ -82,7 +82,7 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
         const rec = VO2H.resumen(actual, tel);
         actual.historial = VO2H.comparar(rec, VO2H.deTelefono(tel));
         actual.telefonoLegible = VO2H.telefonoLegible(tel);
-        if (SB && !VO2H.conectado()) nota = " No se guardó en el historial: inicia sesión en el panel «Historial de socios» y vuelve a analizar.";
+        if (SB && !VO2H.conectado()) nota = " No se guardó en el historial: todavía no hay conexión con Firebase. Espera un momento y vuelve a analizar.";
         else try { VO2H.guardar(rec).then(() => { if (VO2H.conectado()) histMsg("Prueba guardada en el historial."); }, () => {}); nota = actual.historial ? ` Comparada con ${actual.historial.anteriores.length} prueba${actual.historial.anteriores.length > 1 ? "s" : ""} anterior${actual.historial.anteriores.length > 1 ? "es" : ""}.` : " Guardada en el historial (primera prueba de este teléfono)."; }
         catch (e) { nota = " No se pudo guardar en el historial."; }
         try { localStorage.setItem(PREF_LADA, $("lada").value); } catch (e) {}
@@ -304,36 +304,24 @@ const EJEMPLO = window.VO2_RECURSOS.ejemplo;
     pintar(actual); filas = null; esEjemplo = false;
   }
   llenarLadas(); pintarHistorial();
-  // ---- Firebase: historial en línea con inicio de sesión del personal ----
+  // ---- Firebase: historial en línea (sin inicio de sesión) ----
   function fallaDb(codigo) {
-    histMsg(codigo === "sin-sesion" ? "Inicia sesión para usar el historial."
-      : codigo === "permission-denied" ? "Esta cuenta no tiene permiso para usar el historial (el correo debe estar en la lista del personal)."
+    histMsg(codigo === "sin-sesion" ? "Todavía no hay conexión con el historial en línea."
+      : codigo === "permission-denied" ? "Firebase rechazó la operación: revisa que las reglas de Firestore (herramientas/firestore.rules) estén publicadas."
       : "No se pudo guardar en el historial en línea (" + esc(codigo) + "). Revisa tu conexión y vuelve a analizar la prueba.");
   }
   function estadoAlmacen() {
     $("histdonde").textContent = !SB ? "Pruebas guardadas solo en este navegador, ligadas al teléfono de cada socio. Exporta un respaldo seguido."
-      : VO2H.conectado() ? "Historial en línea (Firebase): lo ves desde cualquier computadora con tu cuenta del personal." : "Historial en línea protegido: inicia sesión para verlo.";
+      : VO2H.conectado() ? "Historial en línea (Firebase): lo ves desde cualquier computadora." : "Conectando con el historial en línea…";
   }
   if (SB) {
     VO2H.modoNube();
     firebase.initializeApp(CFG);
-    const auth = firebase.auth(), db = firebase.firestore();
-    const mostrarSesion = (on) => { $("login").hidden = on; $("salir").hidden = !on; $("buscar").hidden = !on; $("histlista").hidden = !on; $("exportar").hidden = !on; $("importar").parentElement.hidden = !on; };
-    mostrarSesion(false);
-    auth.onAuthStateChanged(async (user) => {
-      if (!user) { VO2H.desconectar(); mostrarSesion(false); estadoAlmacen(); pintarHistorial(); return; }
-      try {
-        const r = await VO2H.conectarFirebase(db, fallaDb);
-        mostrarSesion(true); estadoAlmacen(); pintarHistorial(); revisarTelefono(false);
-        if (r.subidos) histMsg(`Se subieron ${r.subidos} prueba${r.subidos > 1 ? "s" : ""} que estaban guardadas solo en este navegador.`);
-      } catch (e) { mostrarSesion(false); fallaDb((e && e.code) || "error"); }
-    });
-    $("login").addEventListener("submit", async (e) => {
-      e.preventDefault(); histMsg("");
-      try { await auth.signInWithEmailAndPassword($("loginMail").value.trim(), $("loginPass").value); $("loginPass").value = ""; }
-      catch (err) { histMsg(err && err.code === "auth/too-many-requests" ? "Demasiados intentos. Espera unos minutos e inténtalo de nuevo." : "No se pudo iniciar sesión: correo o contraseña incorrectos."); }
-    });
-    $("salir").addEventListener("click", () => auth.signOut());
+    const db = firebase.firestore();
+    VO2H.conectarFirebase(db, fallaDb).then((r) => {
+      estadoAlmacen(); pintarHistorial(); revisarTelefono(false);
+      if (r.subidos) histMsg(`Se subieron ${r.subidos} prueba${r.subidos > 1 ? "s" : ""} que estaban guardadas solo en este navegador.`);
+    }, (e) => { $("histdonde").textContent = "No se pudo conectar con el historial en línea."; fallaDb((e && e.code) || "error"); });
   } else if (CFG.apiKey) histMsg("No cargó la librería de Firebase. Revisa tu conexión a internet y recarga la página.");
   estadoAlmacen();
   try { cargarEjemplo(); } catch (e) { $("resultado").innerHTML = '<p class="hint">Sube un Excel para ver el resultado aquí.</p>'; }

@@ -31,18 +31,18 @@ Todo el cálculo se hace en el navegador de quien usa la página. Los Excel y lo
 - El **reporte del socio** agrega la sección «Tu evolución» (gráfica, tabla de cambios, lo que mejoró y áreas de oportunidad). La **hoja del personal** agrega «Historial del socio» (todas sus pruebas, tabla completa de cambios, mejoras, áreas de oportunidad, cautelas) y un paso de guion para explicar la evolución.
 - Tipos de mejora que reconoce: capacidad aeróbica máxima, composición corporal (cuando el VO₂max sube por bajar de peso), umbral anaeróbico, base aeróbica, economía de carrera, rendimiento y recuperación.
 
-**Dónde se guarda:** en **Firebase (Firestore)**, protegido con inicio de sesión del personal. No queda nada en el navegador y se ve desde cualquier computadora. Sin Firebase configurado (`js/config.js` vacío), la página funciona como antes: guarda en el navegador (localStorage). Todo cabe en el plan gratuito **Spark** (no pide tarjeta).
+**Dónde se guarda:** en **Firebase (Firestore)**, sin inicio de sesión: se abre y funciona directo, y se ve desde cualquier computadora. Sin Firebase configurado (`js/config.js` vacío), la página guarda en el navegador (localStorage). Cabe en el plan gratuito **Spark** (no pide tarjeta).
+
+> **Privacidad:** al no haber inicio de sesión, quien conozca la dirección de la página (y mire su código) puede leer y modificar el historial: nombres, teléfonos y resultados de los socios. Las reglas solo limitan la forma de lo que se guarda. Si en algún momento quieres restringirlo, se puede agregar acceso del personal sin cambiar el resto.
 
 ### Activar Firebase (una sola vez)
 1. En [console.firebase.google.com](https://console.firebase.google.com) crea un proyecto (puedes desactivar Google Analytics).
 2. **Build → Firestore Database → Crear base de datos** (modo producción, región cercana).
-3. **Build → Authentication → Comenzar → Correo/contraseña → Habilitar**. En la pestaña *Usuarios* usa «Agregar usuario» para crear las cuentas del personal.
-4. En Firestore → **Reglas**, pega `herramientas/firestore.rules`, cambia los correos de ejemplo por los del personal y publica. Esa lista es lo que realmente protege los datos: aunque alguien cree una cuenta, sin su correo en la lista no lee ni escribe nada.
-5. **Configuración del proyecto → Tus apps → Web (`</>`)**: registra la app y copia el objeto `firebaseConfig` a `js/config.js`. Esos valores son públicos por diseño.
-6. **Authentication → Configuración → Dominios autorizados**: agrega `universidadgeb-creator.github.io`.
-7. Sube el cambio a GitHub; Pages lo publica.
+3. En Firestore → **Reglas**, pega `herramientas/firestore.rules` y publica.
+4. **Configuración del proyecto → Tus apps → Web (`</>`)**: registra la app y copia el objeto `firebaseConfig` a `js/config.js`.
+5. Sube el cambio a GitHub; Pages lo publica.
 
-Al primer inicio de sesión, lo que hubiera guardado en ese navegador se sube a Firebase y se borra del navegador. «Exportar/Importar respaldo» sigue disponible.
+Al conectar, lo que hubiera guardado en ese navegador se sube a Firebase y se borra del navegador. «Exportar/Importar respaldo» sigue disponible.
 
 Los límites gratuitos de Spark (1 GiB almacenado, 50 mil lecturas y 20 mil escrituras al día) sobran para este uso: cada prueba pesa unos pocos KB.
 

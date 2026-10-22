@@ -1,5 +1,5 @@
 /* Historial de pruebas por socio (ligado a su teléfono) y comparación entre pruebas.
- * Los registros viven en Firebase (con inicio de sesión del personal); sin Firebase configurado, en localStorage. */
+ * Los registros viven en Firebase (Firestore, sin inicio de sesión); sin Firebase configurado, en localStorage. */
 (function (root) {
   "use strict";
   const CLAVE = "vivo47-historial-v1";
@@ -29,8 +29,7 @@
   }
 
   // ---------- almacenamiento ----------
-  // Copia en memoria (cache). Si hay Firebase configurado, el historial vive solo allí (colección "pruebas", con inicio de
-  // sesión del personal) y no se guarda nada en el navegador. Sin Firebase, se usa localStorage como respaldo local.
+  // Copia en memoria (cache). Si hay Firebase configurado, el historial vive solo allí (colección "pruebas") y no se guarda nada en el navegador. Sin Firebase, se usa localStorage como respaldo local.
   const idDe = (rec) => `${rec.telefono}|${rec.fecha}`;
   const idDoc = (rec) => `${rec.telefono}_${rec.fecha}`.replace(/[^A-Za-z0-9_\-.~:@+]/g, "-");
   const orden = (a) => a.sort((x, y) => x.telefono.localeCompare(y.telefono) || x.fecha.localeCompare(y.fecha));
@@ -39,7 +38,7 @@
   function leerLocal() { try { const a = JSON.parse(localStorage.getItem(CLAVE) || "[]"); return Array.isArray(a) ? a.filter(valido) : []; } catch (e) { return []; } }
   function espejo() { if (nube) return; try { localStorage.setItem(CLAVE, JSON.stringify(cache)); } catch (e) { /* sin espacio o bloqueado */ } }
   function leer() { if (!cache) cache = nube ? [] : orden(leerLocal()); return cache; }
-  const sinSesion = () => Object.assign(new Error("Inicia sesión para usar el historial."), { code: "sin-sesion" });
+  const sinSesion = () => Object.assign(new Error("Aún no hay conexión con el historial en línea."), { code: "sin-sesion" });
   const escrituras = (fn) => { if (!back) return Promise.resolve(); return Promise.resolve().then(fn).catch((e) => { avisar((e && e.code) || "error", e); throw e; }); };
 
   /** Resumen compacto de un análisis: lo que se guarda y se compara. */
@@ -66,7 +65,7 @@
     cache = leer().filter((x) => !(x.telefono === tel && x.fecha === fecha)); espejo();
     return rec ? escrituras(() => back.borrar(rec)) : Promise.resolve();
   }
-  /** Conecta Firebase (Firestore, con sesión ya iniciada): carga el historial y sube lo que solo estaba en este navegador. */
+  /** Conecta Firebase (Firestore): carga el historial y sube lo que solo estaba en este navegador. */
   async function conectarFirebase(db, alFallar) {
     avisar = alFallar || (() => {}); nube = true;
     const col = db.collection("pruebas");
@@ -84,10 +83,10 @@
     back = b; cache = orden(remotos.concat(solosLocal));
     return { remotos: remotos.length, subidos: solosLocal.length };
   }
-  /** Al cerrar sesión se vacía la copia en memoria. */
+  /** Vacía la copia en memoria y corta la conexión. */
   function desconectar() { back = null; cache = []; }
   const conectado = () => !!back;
-  /** Activa el modo nube (hay Firebase configurado) aunque aún no haya sesión: así no se escribe nada en el navegador. */
+  /** Activa el modo nube (hay Firebase configurado) aunque aún no haya conexión: así no se escribe nada en el navegador. */
   function modoNube() { nube = true; if (!back) cache = []; }
 
   function deTelefono(tel) { return leer().filter((x) => x.telefono === tel).sort((x, y) => x.fecha.localeCompare(y.fecha)); }

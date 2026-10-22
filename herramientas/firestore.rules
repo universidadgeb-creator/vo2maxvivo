@@ -1,17 +1,17 @@
 rules_version = '2';
-// Historial VO2max vivo47. Pégalo en Firebase console → Firestore Database → Reglas → Publicar.
-// Solo las cuentas del personal (correos de esta lista) leen y escriben.
+// Historial VO2max vivo47 (sin inicio de sesión). Pégalo en Firebase console → Firestore Database → Reglas → Publicar.
+// OJO: sin autenticación, cualquiera que tenga la dirección de la página puede leer y escribir /pruebas.
+// Estas reglas solo limitan QUÉ se puede guardar (solo la colección pruebas, con la forma esperada y tamaño acotado).
 service cloud.firestore {
   match /databases/{database}/documents {
-    function esPersonal() {
-      return request.auth != null
-        && request.auth.token.email in [
-          "correo1@tudominio.com",
-          "correo2@tudominio.com"
-        ];
-    }
     match /pruebas/{id} {
-      allow read, write: if esPersonal();
+      allow read: if true;
+      allow create, update: if request.resource.data.keys().hasAll(['telefono', 'fecha', 'vo2max'])
+        && request.resource.data.telefono is string && request.resource.data.telefono.size() < 20
+        && request.resource.data.fecha is string
+        && request.resource.data.vo2max is number
+        && request.resource.data.size() < 40;
+      allow delete: if true;
     }
     match /{otro=**} {
       allow read, write: if false;
